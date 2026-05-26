@@ -13,6 +13,8 @@ struct Cli {
 enum Command {
     /// Build the site
     Build,
+    /// Watch source dirs and rebuild on change
+    Watch,
     /// Scaffold a starter site at the given path. The path must not already exist.
     New {
         /// Output directory for the scaffolded site
@@ -24,6 +26,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Build => knead::build(),
+        Command::Watch => knead::watch(),
         Command::New { path } => knead::new(&path),
     }
 }

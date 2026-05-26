@@ -15,6 +15,7 @@ pub mod site_data;
 pub mod static_copy;
 pub mod template;
 pub mod tera_env;
+pub mod watch;
 pub mod wikilink;
 pub mod write;
 
@@ -25,6 +26,10 @@ use std::path::Path;
 
 pub fn new(path: &Path) -> Result<()> {
     scaffold::run(path)
+}
+
+pub fn watch() -> Result<()> {
+    watch::run()
 }
 
 pub fn build() -> Result<()> {
