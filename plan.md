@@ -92,14 +92,14 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [x] Verify: `cargo test` passes (45 unit tests + 5 fixtures).
   - [x] Verify: manual `cargo run -- build` in `tests/fixtures/05_cascade/` copies `static/robots.txt` and renders config + data values into `dist/index.html` byte-identical to `expected/`.
 
-- [ ] Phase 6: Permalinks — fill in the `Doc::output_path` slot with real `permalink` expansion. `Doc` already carries `output_path` from Phase 1; this slice replaces the default-mirror computation with `permalink:` expansion of `:slug`, `:yyyy`, `:mm`, `:dd`.
-  - [ ] Add `slug` to `Cargo.toml`.
-  - [ ] Add `src/permalink.rs::expand(pattern: &str, doc: &Doc) -> PathBuf` supporting the variable set from spec §5.1; trailing `/` means write `index.html`.
-  - [ ] Default behavior (no `permalink`) still mirrors `id_path` (existing Phase 1 behavior, now factored as `permalink::default_for(&id_path)`).
-  - [ ] Move `output_path` resolution from `write::run` into the end of `read::run` so markup can rely on it (sets up Phase 9 wikilink resolution).
-  - [ ] Add `tests/fixtures/06_permalinks/` with a post declaring `permalink: /blog/:yyyy/:slug/` and the expected `dist/blog/2025/hello/index.html`.
-  - [ ] Add unit tests for `permalink::expand` (date components, trailing slash, default fallback).
-  - [ ] Verify: `cargo test` passes.
+- [x] Phase 6: Permalinks — fill in the `Doc::output_path` slot with real `permalink` expansion. `Doc` already carries `output_path` from Phase 1; this slice replaces the default-mirror computation with `permalink:` expansion of `:slug`, `:yyyy`, `:mm`, `:dd`.
+  - [x] Add `slug` to `Cargo.toml`.
+  - [x] Add `src/permalink.rs::expand` supporting the variable set from spec §5.1; trailing `/` means write `index.html`. **Deviation**: signature is `expand(pattern: &str, id_path: &Path, date: &DateTime<Utc>) -> PathBuf` rather than `expand(pattern, &Doc)` — the call site in `Doc::new` doesn't yet have a `Doc`, and primitives are easier to unit-test in isolation.
+  - [x] Default behavior (no `permalink`) still mirrors `id_path` (now factored as `permalink::default_for(&id_path)`).
+  - [x] ~~Move `output_path` resolution from `write::run` into the end of `read::run`~~ — **deviation**: the resolution actually lived in `Doc::new`, not `write::run`. Kept it there (via a private `resolve_output_path` helper) so every construction path — `parse`, `parse_yaml`, future generator-emitted docs — populates `output_path` for free. `Doc::load` re-runs the helper after fs date fallback so date-templated permalinks still resolve correctly when `date:` is omitted from frontmatter.
+  - [x] Add `tests/fixtures/06_permalinks/` with a post declaring `permalink: /blog/:yyyy/:slug/` and the expected `dist/blog/2025/hello/index.html`.
+  - [x] Add unit tests for `permalink::expand` (date components, trailing slash, default fallback, leading-slash strip, verbatim no-trailing-slash).
+  - [x] Verify: `cargo test` passes (52 unit tests + 6 integration fixtures).
 
 - [ ] Phase 7: `query` filter — add a `Query` type and evaluator that iterates over `Index.docs` linearly; register the filter on the template env only. No secondary indexes — simplest thing that could work; revisit if iteration cost actually shows up.
   - [ ] Add `globset` to `Cargo.toml`.

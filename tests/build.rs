@@ -135,3 +135,8 @@ fn input_types() {
 fn cascade() {
     run_build("05_cascade");
 }
+
+#[test]
+fn permalinks() {
+    run_build("06_permalinks");
+}

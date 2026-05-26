@@ -1,4 +1,5 @@
 use crate::frontmatter;
+use crate::permalink;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -51,12 +52,12 @@ impl Doc {
     /// `tags`, `date`, `updated` from `data` per spec §5. No filesystem
     /// fallback for dates — that's `load`'s job.
     pub fn new(id_path: PathBuf, content: String, data: Mapping) -> Doc {
-        let output_path = id_path.with_extension("html");
         let title = uplift_string(&data, "title").unwrap_or_default();
         let template = uplift_string(&data, "template");
         let tags = uplift_tags(&data);
         let date = parse_date(data.get("date")).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
         let updated = parse_date(data.get("updated")).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+        let output_path = resolve_output_path(&id_path, &data, &date);
         Doc {
             id_path,
             output_path,
@@ -119,7 +120,8 @@ impl Doc {
         let mut doc =
             parsed.with_context(|| format!("could not parse {}", fs_path.display()))?;
 
-        if parse_date(doc.data.get("date")).is_none() {
+        let date_from_fs = parse_date(doc.data.get("date")).is_none();
+        if date_from_fs {
             doc.date = meta
                 .created()
                 .ok()
@@ -134,7 +136,17 @@ impl Doc {
                 .map(DateTime::<Utc>::from)
                 .unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
         }
+        if date_from_fs {
+            doc.output_path = resolve_output_path(&doc.id_path, &doc.data, &doc.date);
+        }
         Ok(doc)
+    }
+}
+
+fn resolve_output_path(id_path: &Path, data: &Mapping, date: &DateTime<Utc>) -> PathBuf {
+    match data.get("permalink").and_then(Value::as_str) {
+        Some(pattern) => permalink::expand(pattern, id_path, date),
+        None => permalink::default_for(id_path),
     }
 }
 

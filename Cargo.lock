@@ -543,6 +543,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_yaml_ng",
+ "slug",
  "tera",
  "walkdir",
 ]
