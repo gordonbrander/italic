@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::doc::Doc;
 use crate::index::Index;
 use anyhow::{Context, Result};
-use std::fs;
 use walkdir::WalkDir;
 
 pub fn run(config: &Config) -> Result<Index> {
@@ -29,9 +28,8 @@ pub fn run(config: &Config) -> Result<Index> {
             .strip_prefix(&config.content_dir)
             .with_context(|| format!("could not strip prefix from {}", path.display()))?
             .to_path_buf();
-        let body = fs::read_to_string(path)
-            .with_context(|| format!("could not read {}", path.display()))?;
-        index.insert(Doc::from_body(id_path, body));
+        let doc = Doc::load(&config.content_dir, &id_path)?;
+        index.insert(doc);
     }
     Ok(index)
 }

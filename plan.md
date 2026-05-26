@@ -42,7 +42,7 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [x] Add `clap` (`derive`), `walkdir`, `pulldown-cmark` (`html`), `serde` (`derive`), `serde_yaml_ng`, `chrono` (`serde`), `anyhow` to `[dependencies]`; add `insta` to `[dev-dependencies]`. (Note: `insta` pulled in but not yet exercised — the integration harness uses a hand-rolled tree diff for now.)
   - [x] Add `src/config.rs::Config` with `content_dir`, `output_dir`, `templates_dir`, `static_dir`, `data_dir`, `generators_dir`; `Default` impl returns spec §3 names; no file load yet.
   - [x] Add `src/doc.rs::Doc` with **all fields from spec §5** present from day one: `id_path: PathBuf`, `output_path: PathBuf`, `template: Option<String>`, `title: String`, `content: String`, `tags: Vec<String>`, `date: DateTime<Utc>`, `updated: DateTime<Utc>`, `data: serde_yaml_ng::Mapping`. Add a `Doc::from_body(id_path, body) -> Doc` constructor that fills defaults so Phase 1 can use it without frontmatter.
-  - [x] Add `src/index.rs::Index` with `docs: Vec<Doc>`, `by_path: BTreeMap<PathBuf, usize>`; reserve (commented) slots for `by_tag` and `backlinks` to be populated later. Provide `Index::insert(doc)` and `Index::get(&id_path)`.
+  - [x] Add `src/index.rs::Index` with just `docs: Vec<Doc>`. Simplest thing that could work: no secondary indexes yet. Query functions in later phases iterate over `docs` directly; we'll add indexes if and when iteration is actually a bottleneck. Provide `Index::insert(doc)`.
   - [x] ~~Add `src/phases/mod.rs` re-exporting~~ — **deviation**: per CLAUDE.md (modern Rust prefers `foo.rs` + sibling `foo/` over `foo/mod.rs`), the phase modules live at the crate root (`src/read.rs`, `src/markup.rs`, `src/generate.rs`, `src/template.rs`, `src/write.rs`) rather than nested under a `phases/` parent. Subsequent phases should target these top-level paths.
   - [x] Add `src/read.rs::run(&Config) -> Index` — walks `content_dir`, dispatches `.md` only, builds `Doc` via `Doc::from_body`, inserts into `Index`. (Other extensions handled in later phases.)
   - [x] Add `src/markup.rs::run(&mut Index)` — for each doc, render `.md` body via `pulldown-cmark` into `doc.content`. (Tera, frontmatter handling, and per-type branching land in later phases.)
@@ -56,14 +56,14 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [x] Verify: `cargo test` passes the `01_skeleton` fixture.
   - [x] Verify: manual `cargo run -- build` in `tests/fixtures/01_skeleton/` produces `dist/hello.html`.
 
-- [ ] Phase 2: Frontmatter uplift — populate the `Doc` fields that Phase 1 left at defaults by parsing the `---`-delimited YAML block.
-  - [ ] Add `src/frontmatter.rs::split` returning `(Option<&str>, &str)` for the YAML block and body, plus `parse(&str) -> serde_yaml_ng::Mapping`.
-  - [ ] Add `Doc::from_source(id_path, source, fs_meta)` — splits frontmatter, uplifts `title`, `template`, `tags`, `date`, `updated` per spec §5 fallback rules (date: frontmatter → created → modified; updated: frontmatter → modified), stashes the full frontmatter map in `doc.data`.
-  - [ ] Update `src/read.rs` to use `Doc::from_source` instead of `Doc::from_body`.
-  - [ ] Add unit tests for `frontmatter::split` (empty, missing closing `---`, body-only, CRLF) and for `Doc::from_source` (each fallback rule).
-  - [ ] Add `tests/fixtures/02_frontmatter/` with a doc declaring `title`, `tags`, `date`; expected output is the rendered body only (still no template wrapping).
-  - [ ] Verify: `cargo test` passes.
-  - [ ] Verify: manual build of `02_frontmatter` strips the frontmatter from output and exposes uplifted fields (visible later once templates land).
+- [x] Phase 2: Frontmatter uplift — populate the `Doc` fields that Phase 1 left at defaults by parsing the `---`-delimited YAML block.
+  - [x] Add `src/frontmatter.rs::split` returning `(Option<&str>, &str)` for the YAML block and body, plus `parse(&str) -> serde_yaml_ng::Mapping`.
+  - [x] ~~Add `Doc::from_source(id_path, source, fs_meta)`~~ — **deviation**: layered constructor API instead — `Doc::new(id_path, content, data)` (pure uplift from data), `Doc::parse(id_path, source)` (splits frontmatter, calls new), `Doc::load(content_dir, id_path)` (reads file, parses, applies fs-based date fallback). Also added `impl Default for Doc`. fs fallback in `load` is keyed off whether `doc.data` contains a parseable `date`/`updated` (not a sentinel check on the field) so `1970-01-01` written in frontmatter still wins.
+  - [x] Update `src/read.rs` to use `Doc::load` instead of `Doc::from_body` (collapses the prior `fs::read_to_string` + constructor into one call).
+  - [x] Add unit tests for `frontmatter::split` (empty, missing closing `---`, body-only, CRLF, empty block, no-body-after-fence, fence-with-trailing-text) and for `Doc::new`/`parse`/`load` (each uplift rule, malformed YAML, fs fallback).
+  - [x] Add `tests/fixtures/02_frontmatter/` with a doc declaring `title`, `tags`, `date`; expected output is the rendered body only (still no template wrapping).
+  - [x] Verify: `cargo test` passes (23 unit tests + 2 integration fixtures).
+  - [x] Verify: manual build of `02_frontmatter` strips the frontmatter from output.
 
 - [ ] Phase 3: Tera template phase — fill in the `src/template.rs` stub with real Tera rendering; load `templates/`; `doc.template` selects a template. Markup phase also runs Tera over bodies (restricted: no `query`/`backlinks` registered yet).
   - [ ] Add `tera` to `Cargo.toml`.
@@ -100,11 +100,10 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [ ] Add unit tests for `permalink::expand` (date components, trailing slash, default fallback).
   - [ ] Verify: `cargo test` passes.
 
-- [ ] Phase 7: `Index` populated + `query` filter — populate the `by_tag` slot already reserved on `Index` in Phase 1, add a `Query` type and evaluator, register the filter on the template env only.
+- [ ] Phase 7: `query` filter — add a `Query` type and evaluator that iterates over `Index.docs` linearly; register the filter on the template env only. No secondary indexes — simplest thing that could work; revisit if iteration cost actually shows up.
   - [ ] Add `globset` to `Cargo.toml`.
-  - [ ] Promote `Index.by_tag: HashMap<String, Vec<usize>>` from reserved-but-unused to populated; fill it at the end of `read::run`.
   - [ ] Add `src/query.rs::Query { path: Option<Glob>, tag: Option<String>, order_by: OrderKey, sort: SortDir }` plus a parser for the compact form `path:<glob>, tag:<t> order_by:<f> sort:<d>` and a struct form callable from Tera kwargs.
-  - [ ] Add `src/query.rs::evaluate(query: &Query, index: &Index) -> Vec<&Doc>`.
+  - [ ] Add `src/query.rs::evaluate(query: &Query, index: &Index) -> Vec<&Doc>` — linear scan over `index.docs`, filter, sort.
   - [ ] Register `query` as a Tera function on the template env only; the markup env stays restricted.
   - [ ] Add `tests/fixtures/07_query/` with three posts and an `index.html` template listing them via `{{ query(...) }}`.
   - [ ] Verify: `cargo test` passes and verifies ordering by `date desc`.
@@ -120,9 +119,8 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [ ] Verify: `cargo test` confirms three pages emitted with correct prev/next URLs and item slices.
   - [ ] Verify: a sitemap-like generator with `order: 9999` sees a doc emitted by an earlier generator (asserted in fixture).
 
-- [ ] Phase 9: Wikilinks + `permalink` filter — promote `Index.backlinks` from reserved slot to populated; resolve `[[Wiki Link]]` / `[[Wiki Link|Display]]` in markup; register `permalink` filter on both envs.
-  - [ ] Promote `Index.backlinks: HashMap<usize, Vec<usize>>` from reserved-but-unused to populated.
-  - [ ] Add `src/wikilink.rs::expand(body, doc, &mut Index) -> String` — scan-and-replace pass run before Markdown render; emits `<a href="…">…</a>` with the resolved URL and records a backlink edge.
+- [ ] Phase 9: Wikilinks + `permalink` filter — resolve `[[Wiki Link]]` / `[[Wiki Link|Display]]` in markup; register `permalink` filter on both envs. Backlinks are computed on demand by linear scan in Phase 10 — no graph stored on `Index`.
+  - [ ] Add `src/wikilink.rs::expand(body, doc, &mut Index) -> String` — scan-and-replace pass run before Markdown render; emits `<a href="…">…</a>` with the resolved URL. Records the source→target edge as a field on the doc (e.g. `doc.outlinks: Vec<PathBuf>`) so Phase 10 can compute backlinks by scanning all docs' outlinks.
   - [ ] Implement resolution: slug the target, walk `doc.id_path` parent chain looking for a matching stem; first match wins.
   - [ ] Register a `permalink` Tera filter on both envs that takes an `id_path` and returns the `output_path`.
   - [ ] Add `tests/fixtures/09_wikilinks/` with nested docs exercising same-dir, parent-dir, and root resolution, plus a `|Display` case.
@@ -130,7 +128,7 @@ Pulled in up front so the type skeleton in Phase 1 can be modeled against real c
   - [ ] Verify: unresolved wikilinks produce a clear warning and fall back to plain text (assert in fixture).
 
 - [ ] Phase 10: `backlinks` filter — register `backlinks` on the template env only; accepts `order_by` (`title` | `created` | `updated`) and `sort`.
-  - [ ] Add `backlinks` filter implementation in `src/tera_env.rs` reading the index's backlink graph.
+  - [ ] Add `backlinks` filter implementation in `src/tera_env.rs` — for a given doc id, linear-scan `index.docs` and collect any whose `outlinks` contain that id. Sort and return. No persistent graph.
   - [ ] Add `tests/fixtures/10_backlinks/` where doc `a.md` links to `b.md` via wikilink and `b.md` renders its backlinks as a list.
   - [ ] Verify: `cargo test` confirms `b.html` lists `a` in its backlinks block.
   - [ ] Verify: negative test asserts `backlinks` is unavailable in markup.

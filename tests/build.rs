@@ -104,3 +104,8 @@ fn run_build(fixture: &str) {
 fn skeleton() {
     run_build("01_skeleton");
 }
+
+#[test]
+fn frontmatter() {
+    run_build("02_frontmatter");
+}

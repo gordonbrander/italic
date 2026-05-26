@@ -1,5 +1,6 @@
 pub mod config;
 pub mod doc;
+pub mod frontmatter;
 pub mod generate;
 pub mod index;
 pub mod markup;
