@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
-/// Files written by `knead new <dir>`. Sourced from `scaffold/` at the crate
+/// Files written by `mug new <dir>`. Sourced from `scaffold/` at the crate
 /// root and embedded at compile time. Add a row here to ship a new file.
 const SCAFFOLD_FILES: &[(&str, &str)] = &[
     ("config.yaml", include_str!("../scaffold/config.yaml")),
@@ -60,7 +60,7 @@ mod tests {
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!(
-            "knead-scaffold-{}-{}-{}",
+            "mug-scaffold-{}-{}-{}",
             name,
             std::process::id(),
             nanos

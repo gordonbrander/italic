@@ -373,7 +373,7 @@ mod tests {
     fn tempdir() -> PathBuf {
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "knead-doc-test-{}-{}",
+            "mug-doc-test-{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
         ));

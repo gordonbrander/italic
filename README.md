@@ -1,4 +1,4 @@
-# knead
+# mug
 
 A zero-config static site generator written in Rust. Every site-specific
 behavior lives in `config.yaml`, frontmatter, and [Tera] templates — never in
@@ -14,18 +14,18 @@ From a clone of this repo:
 cargo install --path .
 ```
 
-This puts `knead` on your `PATH` (typically `~/.cargo/bin/knead`).
+This puts `mug` on your `PATH` (typically `~/.cargo/bin/mug`).
 
 ## Quick start
 
 ```sh
-knead new my-site
+mug new my-site
 cd my-site
-knead build       # one-shot build into dist/
-knead watch       # rebuild on every file change
+mug build       # one-shot build into dist/
+mug watch       # rebuild on every file change
 ```
 
-`knead new` scaffolds a starter site with a sample page, a sample post, a base
+`mug new` scaffolds a starter site with a sample page, a sample post, a base
 template, and built-in RSS and sitemap generators.
 
 ## Project layout
@@ -243,7 +243,7 @@ generators_dir: generators
 site:
   # Anything under `site:` is reachable in templates as `{{ site.x }}`.
   title: My Site
-  description: A site built with knead.
+  description: A site built with mug.
   url: https://example.com   # origin for absolute URLs; no trailing slash
   base_path: ""              # subpath the site is hosted under, e.g. "/blog"
 ```
@@ -252,9 +252,9 @@ site:
 
 | Command                | Purpose                                          |
 |------------------------|--------------------------------------------------|
-| `knead build`          | Run the full pipeline once into `output_dir`.    |
-| `knead watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). |
-| `knead new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
+| `mug build`          | Run the full pipeline once into `output_dir`.    |
+| `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). |
+| `mug new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
 
 All behavioral configuration lives in files, not flags.
 

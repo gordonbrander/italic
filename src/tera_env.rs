@@ -467,7 +467,7 @@ mod tests {
     impl TempTemplatesDir {
         fn new(name: &str) -> Self {
             let dir = std::env::temp_dir().join(format!(
-                "knead-tera_env-test-{}-{}",
+                "mug-tera_env-test-{}-{}",
                 name,
                 std::process::id()
             ));

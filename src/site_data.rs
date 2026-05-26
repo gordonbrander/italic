@@ -74,7 +74,7 @@ mod tests {
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir()
-            .join(format!("knead-sitedata-{}-{}", std::process::id(), nanos));
+            .join(format!("mug-sitedata-{}-{}", std::process::id(), nanos));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

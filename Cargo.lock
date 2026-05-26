@@ -587,24 +587,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "knead"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "globset",
- "insta",
- "notify-debouncer-mini",
- "pulldown-cmark",
- "serde",
- "serde_yaml_ng",
- "slug",
- "tera",
- "walkdir",
-]
-
-[[package]]
 name = "kqueue"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -676,6 +658,24 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "mug"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "globset",
+ "insta",
+ "notify-debouncer-mini",
+ "pulldown-cmark",
+ "serde",
+ "serde_yaml_ng",
+ "slug",
+ "tera",
+ "walkdir",
 ]
 
 [[package]]

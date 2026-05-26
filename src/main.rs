@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "knead", about = "A zero-config static site generator")]
+#[command(name = "mug", about = "A zero-config static site generator")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -25,8 +25,8 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Build => knead::build(),
-        Command::Watch => knead::watch(),
-        Command::New { path } => knead::new(&path),
+        Command::Build => mug::build(),
+        Command::Watch => mug::watch(),
+        Command::New { path } => mug::new(&path),
     }
 }

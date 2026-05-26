@@ -213,7 +213,7 @@ mod tests {
 
     fn tempdir() -> PathBuf {
         let dir = std::env::temp_dir()
-            .join(format!("knead-config-{}-{}", std::process::id(), rand_u32()));
+            .join(format!("mug-config-{}-{}", std::process::id(), rand_u32()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
