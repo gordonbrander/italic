@@ -13,6 +13,7 @@ pub struct Doc {
     pub output_path: PathBuf,
     pub template: Option<String>,
     pub title: String,
+    pub summary: String,
     pub content: String,
     pub tags: Vec<String>,
     pub date: DateTime<Utc>,
@@ -51,6 +52,7 @@ impl Default for Doc {
             output_path: PathBuf::new(),
             template: None,
             title: String::new(),
+            summary: String::new(),
             content: String::new(),
             tags: Vec::new(),
             date: DateTime::<Utc>::UNIX_EPOCH,
@@ -67,6 +69,7 @@ impl Doc {
     /// fallback for dates — that's `load`'s job.
     pub fn new(id_path: PathBuf, content: String, data: Mapping) -> Doc {
         let title = uplift_string(&data, "title").unwrap_or_default();
+        let summary = uplift_string(&data, "summary").unwrap_or_default();
         let template = uplift_string(&data, "template");
         let tags = uplift_tags(&data);
         let date = parse_date(data.get("date")).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
@@ -77,6 +80,7 @@ impl Doc {
             output_path,
             template,
             title,
+            summary,
             content,
             tags,
             date,
@@ -207,8 +211,22 @@ mod tests {
         assert_eq!(d.date, DateTime::<Utc>::UNIX_EPOCH);
         assert_eq!(d.updated, DateTime::<Utc>::UNIX_EPOCH);
         assert_eq!(d.title, "");
+        assert_eq!(d.summary, "");
         assert!(d.tags.is_empty());
         assert!(d.template.is_none());
+    }
+
+    #[test]
+    fn new_uplifts_summary_from_frontmatter() {
+        let data = map_from(&[("summary", Value::String("Hand-written blurb.".into()))]);
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), data);
+        assert_eq!(d.summary, "Hand-written blurb.");
+    }
+
+    #[test]
+    fn new_defaults_summary_to_empty_when_missing() {
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new());
+        assert_eq!(d.summary, "");
     }
 
     #[test]

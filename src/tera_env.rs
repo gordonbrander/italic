@@ -1,6 +1,7 @@
 use crate::backlinks;
 use crate::config::Config;
 use crate::doc::Doc;
+use crate::html;
 use crate::permalink;
 use crate::query;
 use anyhow::{Context, Result};
@@ -27,6 +28,7 @@ pub struct MarkupEnv {
 pub fn build_markup_env(config: &Config, docs: Arc<Vec<Doc>>) -> Result<MarkupEnv> {
     let mut tera = load_templates(config)?;
     register_url_filters(&mut tera, docs, config.site_url.clone(), config.base_path.clone());
+    register_text_filters(&mut tera);
     let macro_preamble = discover_macro_imports(config);
     Ok(MarkupEnv {
         tera,
@@ -43,6 +45,7 @@ pub fn build_template_env(config: &Config, docs: Arc<Vec<Doc>>) -> Result<Tera> 
     query::register(&mut env, docs.clone());
     backlinks::register(&mut env, docs.clone());
     register_url_filters(&mut env, docs, config.site_url.clone(), config.base_path.clone());
+    register_text_filters(&mut env);
     Ok(env)
 }
 
@@ -125,6 +128,29 @@ fn register_url_filters(
                 stripped
             );
             tera::to_value(out).map_err(tera::Error::from)
+        },
+    );
+}
+
+/// Register general-purpose text-shaping filters on both envs.
+///
+/// - `truncate_words` — `text | truncate_words(length=N)`. Truncates at the
+///   last whitespace that fits, appending `…` when truncation happens. Default
+///   length is 250. Complements Tera's built-in `striptags`, which strips
+///   HTML, and `truncate`, which is not word-aware.
+fn register_text_filters(env: &mut Tera) {
+    env.register_filter(
+        "truncate_words",
+        |value: &Value, args: &HashMap<String, Value>| -> tera::Result<Value> {
+            let text = value
+                .as_str()
+                .ok_or_else(|| tera::Error::msg("truncate_words filter: input must be a string"))?;
+            let length = args
+                .get("length")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize)
+                .unwrap_or(250);
+            tera::to_value(html::truncate_words(text, length)).map_err(tera::Error::from)
         },
     );
 }
@@ -554,6 +580,53 @@ mod tests {
             env.macro_preamble,
             "{% import \"macros/real.html\" as real %}\n"
         );
+    }
+
+    #[test]
+    fn truncate_words_filter_on_markup_env() {
+        let mut env = build_markup_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let out = env
+            .tera
+            .render_str(
+                "{{ 'hello world foo bar baz' | truncate_words(length=15) }}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "hello world…");
+    }
+
+    #[test]
+    fn truncate_words_filter_on_template_env() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let out = env
+            .render_str(
+                "{{ 'hello world foo bar baz' | truncate_words(length=15) }}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "hello world…");
+    }
+
+    #[test]
+    fn truncate_words_filter_default_length_is_250() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        // 100 chars — well under 250 — should pass through unchanged.
+        let short = "a".repeat(100);
+        let body = format!("{{{{ '{}' | truncate_words }}}}", short);
+        let out = env.render_str(&body, &tera::Context::new()).unwrap();
+        assert_eq!(out, short);
+    }
+
+    #[test]
+    fn truncate_words_composes_with_striptags() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let out = env
+            .render_str(
+                "{{ '<p>hello world foo bar baz</p>' | striptags | truncate_words(length=15) }}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "hello world…");
     }
 
     #[test]

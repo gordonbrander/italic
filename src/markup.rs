@@ -1,13 +1,16 @@
 use crate::config::Config;
 use crate::doc::{Doc, DocKind};
+use crate::html as html_utils;
 use crate::index::Index;
 use crate::site_data::SiteData;
-use crate::tera_env::{build_markup_env, MarkupEnv};
+use crate::tera_env::{MarkupEnv, build_markup_env};
 use crate::wikilink;
 use anyhow::{Context, Result};
-use pulldown_cmark::{html, Parser};
+use pulldown_cmark::{Parser, html};
 use std::borrow::Cow;
 use std::sync::Arc;
+
+const SUMMARY_MAX_CHARS: usize = 250;
 
 /// Run the markup phase over `doc`. Renders the body string through the
 /// restricted Tera env, expands wikilinks (Markdown only), and for `.md` docs
@@ -65,7 +68,107 @@ pub fn render(
         }
         DocKind::Raw | DocKind::Yaml => after_wikilinks,
     };
+
+    // Fallback summary: only for Markdown docs whose frontmatter didn't
+    // supply one. Strips HTML from the just-rendered body and truncates at a
+    // word boundary.
+    if doc.kind() == DocKind::Markdown && doc.summary.is_empty() {
+        let stripped = html_utils::strip_tags(&doc.content);
+        doc.summary = html_utils::truncate_words(&stripped, SUMMARY_MAX_CHARS);
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use serde_yaml_ng::Mapping;
+    use std::path::PathBuf;
+
+    fn cfg() -> Config {
+        Config {
+            templates_dir: PathBuf::from("/definitely/does/not/exist/templates"),
+            ..Config::default()
+        }
+    }
+
+    fn site_data() -> SiteData {
+        SiteData {
+            site: Mapping::new(),
+            data: Mapping::new(),
+        }
+    }
+
+    fn render_doc(doc: &mut Doc) {
+        let snapshot: Arc<Vec<Doc>> = Arc::new(Vec::new());
+        let mut env = build_markup_env(&cfg(), snapshot.clone()).unwrap();
+        render(&mut env, &site_data(), doc, &snapshot).unwrap();
+    }
+
+    #[test]
+    fn markdown_doc_gets_fallback_summary() {
+        let mut doc = Doc::new(
+            PathBuf::from("post.md"),
+            "# Hello\n\nThis is the body of the post. It has several words.".to_string(),
+            Mapping::new(),
+        );
+        render_doc(&mut doc);
+        assert!(!doc.summary.is_empty(), "expected a fallback summary");
+        // No HTML tags should leak into the summary.
+        assert!(!doc.summary.contains('<'));
+        assert!(!doc.summary.contains('>'));
+        assert!(doc.summary.contains("This is the body"));
+    }
+
+    #[test]
+    fn fallback_summary_truncates_long_bodies() {
+        let long_body: String = "word ".repeat(100); // 500 chars
+        let mut doc = Doc::new(PathBuf::from("post.md"), long_body, Mapping::new());
+        render_doc(&mut doc);
+        assert!(doc.summary.chars().count() <= 250);
+        assert!(doc.summary.ends_with('…'));
+    }
+
+    #[test]
+    fn frontmatter_summary_is_preserved_verbatim() {
+        let mut data = Mapping::new();
+        data.insert(
+            serde_yaml_ng::Value::String("summary".into()),
+            serde_yaml_ng::Value::String("Hand-written blurb.".into()),
+        );
+        let mut doc = Doc::new(
+            PathBuf::from("post.md"),
+            "# Hello\n\nMuch longer body that would otherwise yield a different summary."
+                .to_string(),
+            data,
+        );
+        render_doc(&mut doc);
+        assert_eq!(doc.summary, "Hand-written blurb.");
+    }
+
+    #[test]
+    fn raw_doc_without_frontmatter_summary_stays_empty() {
+        let mut doc = Doc::new(
+            PathBuf::from("page.html"),
+            "<p>raw html body</p>".to_string(),
+            Mapping::new(),
+        );
+        render_doc(&mut doc);
+        assert_eq!(doc.summary, "");
+    }
+
+    #[test]
+    fn yaml_doc_without_frontmatter_summary_stays_empty() {
+        let mut doc = Doc::new(
+            PathBuf::from("page.yaml"),
+            "<p>yaml-derived body</p>".to_string(),
+            Mapping::new(),
+        );
+        render_doc(&mut doc);
+        assert_eq!(doc.summary, "");
+    }
 }
 
 pub fn run(config: &Config, site_data: &SiteData, index: &mut Index) -> Result<()> {

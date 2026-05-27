@@ -112,6 +112,7 @@ pub fn run(config: &Config, site_data: &SiteData, index: &mut Index) -> Result<(
                 output_path,
                 template: g.template.clone(),
                 title: String::new(),
+                summary: String::new(),
                 content: g.body.clone(),
                 tags: Vec::new(),
                 date: epoch(),
