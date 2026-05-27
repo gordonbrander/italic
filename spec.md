@@ -189,11 +189,20 @@ during `template`.
 
 Markdown supports and `[[Wiki Link]]` and `[[Wiki Link|Display text]]` syntax.
 
-**Resolution (fallback page matching):** sluggify the wikilink target, then look
-for a page whose `id_path` stem matches — searching the **current directory
-first, then the parent, then upward** toward the root. The first match wins. The
-resolved target is rendered through the `permalink` mechanism so the emitted URL
-is correct.
+**Resolution (nearest page matching):** sluggify the wikilink target and look
+for any page whose `id_path` stem-slug matches — across the **entire doc set**,
+not just the source's ancestor chain. When more than one page matches, the
+candidate at the shortest **directory distance** from the source wins (steps up
+to the nearest common ancestor plus steps back down to the candidate). Ties at
+equal distance are broken by the lexicographically smallest `id_path` so output
+is deterministic. The resolved target is rendered through the `permalink`
+mechanism so the emitted URL is correct.
+
+**Path-prefix disambiguation:** an author can anchor a link at the vault root
+with `[[dir/sub/Name]]`. The prefix's components are slugified individually and
+must match the candidate's parent directory exactly (no suffix matching); a
+prefix with no match resolves to nothing, rather than falling back to a bare
+stem lookup. `[[/Name]]` (empty prefix) matches only root-level docs.
 
 Implementation: we can simply layer this render pass before or after a standard Markdown render.
 Since Wikilink syntax is not part of Markdown, the renderer won't touch it.

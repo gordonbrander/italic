@@ -1,1 +1,1 @@
-[[Hello]] · [[Sibling]] · [[Sibling|click me]] · [[Missing]]
+[[Hello]] · [[Sibling]] · [[Sibling|click me]] · [[Glossary]] · [[reference/Glossary]] · [[Missing]]

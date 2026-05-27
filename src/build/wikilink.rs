@@ -1,7 +1,7 @@
 use crate::doc::{Doc, DocMeta};
 use crate::html;
 use crate::permalink;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Scan `body` for `[[Wiki Link]]` / `[[Wiki Link|Display]]` and replace each
 /// occurrence with either `<a class="wikilink" href="…">display</a>` (resolved)
@@ -10,9 +10,11 @@ use std::path::{Path, PathBuf};
 /// Returns the rewritten body and the deduplicated list of resolved target
 /// `id_path`s — the source doc's outlinks (consumed by Phase 10 backlinks).
 ///
-/// Spec §8: resolution sluggifies the target and walks the source doc's
-/// parent chain (current dir, then upward) looking for a stem-slug match.
-/// First match wins.
+/// Spec §8: global stem-slug match across all docs; ties broken by minimum
+/// directory distance to the source, then by lexicographically smallest
+/// `id_path`. An optional path prefix `[[dir/sub/Name]]` (anchored at the
+/// vault root, slugified componentwise) restricts the candidate set to docs
+/// whose parent directory matches that prefix exactly.
 pub fn expand(body: &str, source: &Doc, docs: &[DocMeta]) -> (String, Vec<PathBuf>) {
     let mut out = String::with_capacity(body.len());
     let mut outlinks: Vec<PathBuf> = Vec::new();
@@ -93,36 +95,95 @@ fn split_target_display(inside: &str) -> (&str, &str) {
     }
 }
 
-/// Resolve a wikilink target to a doc, per spec §8: sluggify the target,
-/// walk the source doc's parent chain (current dir first, then upward to
-/// root), and return the first doc whose stem-slug matches.
+/// Split a wikilink target into an optional path prefix and a stem segment.
+/// `"reference/Glossary"` → `(Some("reference"), "Glossary")`,
+/// `"Hello"`              → `(None, "Hello")`.
+/// A leading `/` survives in the prefix as the empty string, which causes
+/// `prefix_matches` to require a root-level candidate.
+fn split_prefix_stem(target: &str) -> (Option<&str>, &str) {
+    match target.rfind('/') {
+        Some(idx) => (Some(&target[..idx]), &target[idx + 1..]),
+        None => (None, target),
+    }
+}
+
+/// Edge count between two directory paths in the tree: drop the longest
+/// shared component prefix, sum the lengths of what remains on each side.
+/// `("blog/2025", "reference")` → 3 (up 2, down 1).
+fn dir_distance(a: &Path, b: &Path) -> usize {
+    let ac: Vec<Component> = a.components().collect();
+    let bc: Vec<Component> = b.components().collect();
+    let common = ac.iter().zip(bc.iter()).take_while(|(x, y)| x == y).count();
+    (ac.len() - common) + (bc.len() - common)
+}
+
+/// True iff `parent`'s normalized components — slugified individually —
+/// equal `prefix`'s slash-separated components, also slugified. Empty
+/// segments (e.g. from a leading `/`) are ignored on the prefix side.
+fn prefix_matches(parent: &Path, prefix: &str) -> bool {
+    let prefix_slugs: Vec<String> = prefix
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(slug::slugify)
+        .collect();
+    let parent_slugs: Vec<String> = parent
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => s.to_str().map(slug::slugify),
+            _ => None,
+        })
+        .collect();
+    parent_slugs == prefix_slugs
+}
+
+/// Resolve a wikilink target to a doc, per spec §8.
+///
+/// Slugify the stem (and prefix components, if a `dir/Name` form is used)
+/// and scan the full doc set. Among candidates whose stem-slug matches —
+/// and, if a prefix is given, whose parent dir also matches — pick the one
+/// with the smallest directory distance from the source. Ties are broken
+/// by the lexicographically smallest `id_path` so output is deterministic
+/// across runs and platforms.
 fn resolve<'a>(target: &str, source_id_path: &Path, docs: &'a [DocMeta]) -> Option<&'a DocMeta> {
-    let target_slug = slug::slugify(target);
-    if target_slug.is_empty() {
+    let (prefix, stem) = split_prefix_stem(target);
+    let stem_slug = slug::slugify(stem);
+    if stem_slug.is_empty() {
         return None;
     }
     let empty = Path::new("");
-    let mut search_dir: &Path = source_id_path.parent().unwrap_or(empty);
-    loop {
-        for doc in docs {
-            let parent = doc.id_path.parent().unwrap_or(empty);
-            if parent != search_dir {
+    let source_dir = source_id_path.parent().unwrap_or(empty);
+
+    let mut best: Option<(&DocMeta, usize)> = None;
+    for doc in docs {
+        let cand_stem = doc
+            .id_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        if slug::slugify(cand_stem) != stem_slug {
+            continue;
+        }
+        let cand_dir = doc.id_path.parent().unwrap_or(empty);
+        if let Some(p) = prefix {
+            if !prefix_matches(cand_dir, p) {
                 continue;
             }
-            let stem = doc
-                .id_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            if slug::slugify(stem) == target_slug {
-                return Some(doc);
+        }
+        let dist = dir_distance(source_dir, cand_dir);
+        best = match best {
+            None => Some((doc, dist)),
+            Some((curr, curr_dist)) => {
+                let better = dist < curr_dist
+                    || (dist == curr_dist && doc.id_path < curr.id_path);
+                if better {
+                    Some((doc, dist))
+                } else {
+                    Some((curr, curr_dist))
+                }
             }
-        }
-        match search_dir.parent() {
-            Some(p) if p != search_dir => search_dir = p,
-            _ => return None,
-        }
+        };
     }
+    best.map(|(doc, _)| doc)
 }
 
 #[cfg(test)]
@@ -294,5 +355,93 @@ mod tests {
         ];
         let (out, _) = expand("[[b]]", &source, &docs);
         assert!(out.contains(r#"href="/blog/b/""#));
+    }
+
+    #[test]
+    fn resolve_finds_cross_subtree_neighbor() {
+        // Source's ancestor chain has no match, but a deep neighbor in a sibling
+        // subtree does — the new global lookup must find it.
+        let source = doc_at("blog/2025/post.md");
+        let docs = vec![doc_at("reference/glossary.md")];
+        let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("reference/glossary.md"));
+    }
+
+    #[test]
+    fn resolve_picks_nearest_when_ambiguous() {
+        // Same stem in two subtrees; the one closer to source by directory
+        // distance wins. blog/glossary.md (dist 1) beats reference/glossary.md
+        // (dist 3) from blog/2025/post.md.
+        let source = doc_at("blog/2025/post.md");
+        let docs = vec![
+            doc_at("reference/glossary.md"),
+            doc_at("blog/glossary.md"),
+        ];
+        let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("blog/glossary.md"));
+    }
+
+    #[test]
+    fn resolve_lexicographic_tiebreaker_on_equal_distance() {
+        // Two candidates equidistant from source — pick the lexicographically
+        // smaller id_path for determinism.
+        let source = doc_at("root.md");
+        let docs = vec![
+            doc_at("zeta/glossary.md"),
+            doc_at("alpha/glossary.md"),
+        ];
+        let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("alpha/glossary.md"));
+    }
+
+    #[test]
+    fn resolve_explicit_prefix_picks_prefix_match_over_closer() {
+        // Even though blog/glossary.md is closer, [[reference/Glossary]] must
+        // resolve only to the prefix-matching candidate.
+        let source = doc_at("blog/2025/post.md");
+        let docs = vec![
+            doc_at("blog/glossary.md"),
+            doc_at("reference/glossary.md"),
+        ];
+        let hit = resolve("reference/Glossary", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("reference/glossary.md"));
+    }
+
+    #[test]
+    fn resolve_explicit_prefix_no_fallback_to_bare_stem() {
+        // [[missing/Hello]] must NOT fall back to a bare-stem `hello.md` at
+        // the root — explicit prefixes are absolute.
+        let source = doc_at("a.md");
+        let docs = vec![doc_at("hello.md")];
+        assert!(resolve("missing/Hello", &source.id_path, &docs).is_none());
+    }
+
+    #[test]
+    fn resolve_slugifies_prefix_components() {
+        // Prefix `Blog Posts` slugifies to `blog-posts`, matching the
+        // candidate directory of the same slug.
+        let source = doc_at("a.md");
+        let docs = vec![doc_at("blog-posts/hello.md")];
+        let hit = resolve("Blog Posts/Hello", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("blog-posts/hello.md"));
+    }
+
+    #[test]
+    fn resolve_root_anchored_prefix() {
+        // `[[/Hello]]` (leading slash → empty prefix) matches only a
+        // root-level doc, not a nested one.
+        let source = doc_at("blog/post.md");
+        let docs = vec![doc_at("blog/hello.md"), doc_at("hello.md")];
+        let hit = resolve("/Hello", &source.id_path, &docs).unwrap();
+        assert_eq!(hit.id_path, PathBuf::from("hello.md"));
+    }
+
+    #[test]
+    fn dir_distance_basics() {
+        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("blog/2025")), 0);
+        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("blog")), 1);
+        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("")), 2);
+        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("reference")), 3);
+        assert_eq!(dir_distance(Path::new("a/b/c"), Path::new("a/x/y")), 4);
     }
 }
