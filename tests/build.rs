@@ -73,7 +73,7 @@ fn run_build(fixture: &str) {
     build_result.unwrap();
 
     let cleanup_on_panic = AssertCtx {
-        actual_root: temp_root.join("dist"),
+        actual_root: temp_root.join("public"),
         expected_root: expected_dir,
         cleanup_root: Some(temp_root.clone()),
     };
@@ -222,7 +222,7 @@ fn scaffold() {
     build_result.unwrap();
 
     let ctx = AssertCtx {
-        actual_root: demo.join("dist"),
+        actual_root: demo.join("public"),
         expected_root: expected_dir,
         cleanup_root: Some(temp_root),
     };

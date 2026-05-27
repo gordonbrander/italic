@@ -21,7 +21,7 @@ This puts `mug` on your `PATH` (typically `~/.cargo/bin/mug`).
 ```sh
 mug new my-site
 cd my-site
-mug build       # one-shot build into dist/
+mug build       # one-shot build into public/
 mug watch       # rebuild on every file change
 ```
 
@@ -234,7 +234,7 @@ All keys are optional. Defaults shown:
 
 ```yaml
 content_dir: content
-output_dir: dist
+output_dir: public
 templates_dir: templates
 static_dir: static
 data_dir: data
@@ -255,7 +255,7 @@ site:
 | `mug build`          | Run the full pipeline once into `output_dir`.    |
 | `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). |
 | `mug new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
-| `mug clean`          | Remove `output_dir` (default `dist`).            |
+| `mug clean`          | Remove `output_dir` (default `public`).          |
 
 All behavioral configuration lives in files, not flags.
 

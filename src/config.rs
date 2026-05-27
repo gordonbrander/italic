@@ -29,7 +29,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             content_dir: PathBuf::from("content"),
-            output_dir: PathBuf::from("dist"),
+            output_dir: PathBuf::from("public"),
             templates_dir: PathBuf::from("templates"),
             static_dir: PathBuf::from("static"),
             data_dir: PathBuf::from("data"),
@@ -110,7 +110,7 @@ mod tests {
         let path = Path::new("/definitely/does/not/exist/config.yaml");
         let (config, site) = Config::load(path).unwrap();
         assert_eq!(config.content_dir, PathBuf::from("content"));
-        assert_eq!(config.output_dir, PathBuf::from("dist"));
+        assert_eq!(config.output_dir, PathBuf::from("public"));
         assert!(site.is_empty());
     }
 
