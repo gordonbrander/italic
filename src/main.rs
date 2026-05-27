@@ -30,6 +30,8 @@ enum Command {
         /// Output directory for the scaffolded site
         path: PathBuf,
     },
+    /// Remove the output directory
+    Clean,
 }
 
 fn main() -> Result<()> {
@@ -39,5 +41,6 @@ fn main() -> Result<()> {
         Command::Watch => mug::watch(),
         Command::Serve { port, host } => mug::serve(host, port),
         Command::New { path } => mug::new(&path),
+        Command::Clean => mug::clean(),
     }
 }

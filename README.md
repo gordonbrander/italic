@@ -255,6 +255,7 @@ site:
 | `mug build`          | Run the full pipeline once into `output_dir`.    |
 | `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). |
 | `mug new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
+| `mug clean`          | Remove `output_dir` (default `dist`).            |
 
 All behavioral configuration lives in files, not flags.
 

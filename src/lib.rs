@@ -20,7 +20,7 @@ pub mod watch;
 pub mod wikilink;
 pub mod write;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use config::Config;
 use site_data::SiteData;
 use std::path::Path;
@@ -35,6 +35,16 @@ pub fn watch() -> Result<()> {
 
 pub fn serve(host: std::net::IpAddr, port: u16) -> Result<()> {
     serve::run(host, port)
+}
+
+pub fn clean() -> Result<()> {
+    let (config, _) = Config::load(Path::new("config.yaml"))?;
+    if config.output_dir.exists() {
+        std::fs::remove_dir_all(&config.output_dir)
+            .with_context(|| format!("removing {}", config.output_dir.display()))?;
+        eprintln!("cleaned {}", config.output_dir.display());
+    }
+    Ok(())
 }
 
 pub fn build() -> Result<()> {
