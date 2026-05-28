@@ -17,16 +17,39 @@ mod url;
 use crate::config::Config;
 use crate::doc::{Doc, DocMeta};
 use anyhow::{Context, Result};
+use comrak::plugins::syntect::{SyntectAdapter, SyntectAdapterBuilder};
 use std::sync::Arc;
 use tera::Tera;
 
 /// Markup-phase Tera env paired with the auto-import preamble for
-/// `templates/macros/*.html` (Phase 11). Markdown bodies can invoke macros as
-/// shortcodes without writing `{% import %}` boilerplate: `markup::render`
-/// prepends `macro_preamble` to every body before `render_str`.
+/// `templates/macros/*.html` (Phase 11) and the comrak config used to render
+/// Markdown bodies. Markdown bodies can invoke macros as shortcodes without
+/// writing `{% import %}` boilerplate: `markup::render` prepends
+/// `macro_preamble` to every body before `render_str`. `options` and `syntect`
+/// drive the comrak pass; the syntect adapter loads its syntax/theme sets once
+/// here rather than per-doc.
 pub struct MarkupEnv {
     pub tera: Tera,
     pub macro_preamble: String,
+    pub options: comrak::Options<'static>,
+    pub syntect: SyntectAdapter,
+}
+
+/// comrak options for the markup phase. `unsafe_` passes raw HTML through (Tera
+/// macros, the wikilink rewrite, and author inline HTML all rely on it — same
+/// trust model as the previous pulldown-cmark `html` feature). GFM extensions
+/// are on, plus the wikilink extension whose `[[url|label]]` order matches
+/// Mug's `[[Target|Display]]`.
+fn markup_options() -> comrak::Options<'static> {
+    let mut options = comrak::Options::default();
+    options.render.r#unsafe = true;
+    options.extension.wikilinks_title_after_pipe = true;
+    options.extension.table = true;
+    options.extension.strikethrough = true;
+    options.extension.tasklist = true;
+    options.extension.footnotes = true;
+    options.extension.autolink = true;
+    options
 }
 
 /// Tera environment used by the markup phase. Intentionally restricted: no
@@ -40,6 +63,10 @@ pub fn build_markup_env(config: &Config, docs: Arc<Vec<DocMeta>>) -> Result<Mark
     Ok(MarkupEnv {
         tera,
         macro_preamble,
+        options: markup_options(),
+        syntect: SyntectAdapterBuilder::new()
+            .theme("InspiredGitHub")
+            .build(),
     })
 }
 
