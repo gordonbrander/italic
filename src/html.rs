@@ -17,7 +17,7 @@ pub fn escape(s: &str) -> String {
 
 /// Strip HTML tags from `html`, collapse all whitespace runs (including
 /// newlines) to a single space, and trim. Naive state machine — sufficient for
-/// well-formed input like pulldown-cmark output, not a general HTML parser.
+/// well-formed input like comrak output, not a general HTML parser.
 /// HTML entities pass through unchanged.
 pub fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len());

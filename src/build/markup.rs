@@ -1,4 +1,5 @@
-use crate::build::wikilink;
+mod wikilink;
+
 use crate::config::Config;
 use crate::doc::{Doc, DocKind, DocMeta};
 use crate::html as html_utils;
@@ -6,17 +7,17 @@ use crate::index::Index;
 use crate::site_data::SiteData;
 use crate::tera_env::{MarkupEnv, build_markup_env};
 use anyhow::{Context, Result};
-use pulldown_cmark::{Parser, html};
 use std::borrow::Cow;
 use std::sync::Arc;
 
 const SUMMARY_MAX_CHARS: usize = 250;
 
 /// Run the markup phase over `doc`. Renders the body string through the
-/// restricted Tera env, expands wikilinks (Markdown only), and for `.md` docs
-/// runs the result through pulldown-cmark. `snapshot` is the frozen index view
-/// used by `wikilink::expand` for target resolution. Exposed publicly so
-/// `generate::run` can apply the same transformation to its emitted docs.
+/// restricted Tera env, then for Markdown docs parses with comrak, resolves
+/// wikilinks on the AST (populating `doc.outlinks`), and renders to HTML.
+/// `snapshot` is the frozen index view used by `wikilink::resolve_in_ast` for
+/// target resolution. Exposed publicly so `generate::run` can apply the same
+/// transformation to its emitted docs.
 pub fn render(
     env: &mut MarkupEnv,
     site_data: &SiteData,
@@ -48,25 +49,24 @@ pub fn render(
         .render_str(&body_with_imports, &ctx)
         .with_context(|| format!("markup-phase Tera in {}", doc.id_path.display()))?;
 
-    // Wikilink expansion happens between Tera and Markdown render, for
-    // Markdown docs only (spec §8). Resolution targets are read from
-    // `snapshot` (frozen index view).
-    let after_wikilinks = if doc.kind() == DocKind::Markdown {
-        let (expanded, outlinks) = wikilink::expand(&rendered, doc, snapshot);
-        doc.outlinks = outlinks;
-        expanded
-    } else {
-        rendered
-    };
-
+    // Markdown bodies are parsed by comrak; wikilinks are resolved on the AST
+    // (spec §8), so they are code-span aware — `[[…]]` inside a fence stays
+    // literal. `rendered` (post-Tera) is parsed directly; Raw/Yaml bodies pass
+    // through untouched. `snapshot` is the frozen index view used by wikilink
+    // resolution.
     doc.content = match doc.kind() {
         DocKind::Markdown => {
-            let parser = Parser::new(&after_wikilinks);
-            let mut html_out = String::new();
-            html::push_html(&mut html_out, parser);
-            html_out
+            let arena = comrak::Arena::new();
+            let root = comrak::parse_document(&arena, &rendered, &env.options);
+            doc.outlinks = wikilink::resolve_in_ast(root, doc, snapshot);
+            let mut plugins = comrak::options::Plugins::default();
+            plugins.render.codefence_syntax_highlighter = Some(&env.syntect);
+            let mut out = String::new();
+            comrak::format_html_with_plugins(root, &env.options, &mut out, &plugins)
+                .with_context(|| format!("comrak render in {}", doc.id_path.display()))?;
+            out
         }
-        DocKind::Raw | DocKind::Yaml => after_wikilinks,
+        DocKind::Raw | DocKind::Yaml => rendered,
     };
 
     // Fallback summary: only for Markdown docs whose frontmatter didn't

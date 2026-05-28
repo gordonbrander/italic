@@ -2,7 +2,7 @@
 //! the previous stage left behind:
 //!
 //! 1. [`read`] — scan `content/` into an [`Index`].
-//! 2. [`markup`] — render markdown bodies through Tera + pulldown-cmark.
+//! 2. [`markup`] — render markdown bodies through Tera + comrak.
 //! 3. [`generate`] — run `generators/` and append the emitted docs.
 //! 4. [`template`] — apply each doc's Tera template.
 //! 5. [`write`] — write rendered bodies to `output_dir`.
@@ -14,7 +14,6 @@ pub mod markup;
 pub mod read;
 pub mod static_copy;
 pub mod template;
-pub mod wikilink;
 pub mod write;
 
 use crate::config::Config;

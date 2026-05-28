@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 walkdir = "2"
-pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+comrak = { version = "0.52", features = ["syntect"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }

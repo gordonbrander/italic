@@ -1,98 +1,102 @@
 use crate::doc::{Doc, DocMeta};
 use crate::html;
 use crate::permalink;
+use comrak::nodes::{AstNode, NodeValue};
 use std::path::{Component, Path, PathBuf};
 
-/// Scan `body` for `[[Wiki Link]]` / `[[Wiki Link|Display]]` and replace each
-/// occurrence with either `<a class="wikilink" href="…">display</a>` (resolved)
-/// or `<span class="nolink">display</span>` (unresolved, logged to stderr).
+/// Resolve `[[Wiki Link]]` / `[[Wiki Link|Display]]` nodes in a parsed comrak
+/// AST, in place. comrak tokenizes the `[[…]]` syntax (the
+/// `wikilinks_title_after_pipe` extension), so this pass only resolves each
+/// target and rewrites the node. Because parsing happens first, wikilinks are
+/// never produced inside code spans/blocks — so `[[…]]` written in a fence no
+/// longer leaks into a link (the wart of the old pre-parse string scan).
 ///
-/// Returns the rewritten body and the deduplicated list of resolved target
-/// `id_path`s — the source doc's outlinks (consumed by Phase 10 backlinks).
+/// Each `WikiLink` node is collapsed into an `HtmlInline` carrying either
+/// `<a class="wikilink" href="…">display</a>` (resolved) or
+/// `<span class="nolink">display</span>` (unresolved, logged to stderr) — the
+/// same markup the previous scanner emitted, rendered verbatim because the
+/// markup env sets `render.unsafe_`.
+///
+/// Returns the deduplicated list of resolved target `id_path`s — the source
+/// doc's outlinks (consumed by Phase 10 backlinks). This is the one piece of
+/// cross-doc state the markup phase produces, so the caller must assign it to
+/// `doc.outlinks`.
 ///
 /// Spec §8: global stem-slug match across all docs; ties broken by minimum
 /// directory distance to the source, then by lexicographically smallest
 /// `id_path`. An optional path prefix `[[dir/sub/Name]]` (anchored at the
 /// vault root, slugified componentwise) restricts the candidate set to docs
 /// whose parent directory matches that prefix exactly.
-pub fn expand(body: &str, source: &Doc, docs: &[DocMeta]) -> (String, Vec<PathBuf>) {
-    let mut out = String::with_capacity(body.len());
+pub fn resolve_in_ast<'a>(root: &'a AstNode<'a>, source: &Doc, docs: &[DocMeta]) -> Vec<PathBuf> {
     let mut outlinks: Vec<PathBuf> = Vec::new();
-    let mut rest = body;
 
-    while let Some(open) = rest.find("[[") {
-        out.push_str(&rest[..open]);
-        let after_open = &rest[open + 2..];
+    // Collect first, then mutate: detaching a node's children mid-traversal
+    // would disturb the `descendants()` iterator.
+    let wikilinks: Vec<&'a AstNode<'a>> = root
+        .descendants()
+        .filter(|node| matches!(node.data.borrow().value, NodeValue::WikiLink(_)))
+        .collect();
 
-        let close = find_close(after_open);
-        match close {
-            Some(end) => {
-                let inside = &after_open[..end];
-                let (target, display) = split_target_display(inside);
+    for node in wikilinks {
+        let target = match &node.data.borrow().value {
+            NodeValue::WikiLink(w) => w.url.clone(),
+            _ => continue,
+        };
+        let display = node_text(node);
 
-                if let Some(doc) = resolve(target, &source.id_path, docs) {
-                    let url = permalink::to_url(&doc.output_path);
-                    out.push_str(r#"<a class="wikilink" href=""#);
-                    out.push_str(&html::escape(&url));
-                    out.push_str(r#"">"#);
-                    out.push_str(&html::escape(display));
-                    out.push_str("</a>");
-                    if !outlinks.contains(&doc.id_path) {
-                        outlinks.push(doc.id_path.clone());
-                    }
-                } else {
-                    eprintln!(
-                        "warning: unresolved wikilink [[{}]] in {}",
-                        target,
-                        source.id_path.display()
-                    );
-                    out.push_str(r#"<span class="nolink">"#);
-                    out.push_str(&html::escape(display));
-                    out.push_str("</span>");
+        let replacement = match resolve(&target, &source.id_path, docs) {
+            Some(doc) => {
+                let url = permalink::to_url(&doc.output_path);
+                if !outlinks.contains(&doc.id_path) {
+                    outlinks.push(doc.id_path.clone());
                 }
-                rest = &after_open[end + 2..];
+                render_link(&url, &display)
             }
             None => {
-                // No close on this opener — emit `[[` literally and keep
-                // scanning so a later valid `[[…]]` still gets picked up.
-                out.push_str("[[");
-                rest = after_open;
+                eprintln!(
+                    "warning: unresolved wikilink [[{}]] in {}",
+                    target,
+                    source.id_path.display()
+                );
+                render_nolink(&display)
             }
-        }
-    }
-    out.push_str(rest);
+        };
 
-    (out, outlinks)
+        // Collapse the node into a single raw-HTML inline, discarding the
+        // parsed label children (their text is already baked into `display`).
+        for child in node.children().collect::<Vec<_>>() {
+            child.detach();
+        }
+        node.data.borrow_mut().value = NodeValue::HtmlInline(replacement);
+    }
+
+    outlinks
 }
 
-/// Find the byte offset of the first `]]` that closes a wikilink opening,
-/// rejecting the link if a `\n` or another `[` appears first. Returns the
-/// offset of the leading `]` of the closing pair, or `None` if no valid close
-/// exists.
-fn find_close(s: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
-    let mut j = 0;
-    while j + 1 < bytes.len() {
-        let c = bytes[j];
-        if c == b'\n' || c == b'[' {
-            return None;
+/// Concatenate the text of a node's descendant `Text` nodes — the wikilink's
+/// display label. For the common plain-text label this is exactly the authored
+/// text; any inline markup or raw HTML in a label degrades to its text content
+/// (and raw HTML is dropped), which keeps the rendered anchor safe.
+fn node_text<'a>(node: &'a AstNode<'a>) -> String {
+    let mut s = String::new();
+    for child in node.descendants().skip(1) {
+        if let NodeValue::Text(ref t) = child.data.borrow().value {
+            s.push_str(t);
         }
-        if c == b']' && bytes[j + 1] == b']' {
-            return Some(j);
-        }
-        j += 1;
     }
-    None
+    s
 }
 
-fn split_target_display(inside: &str) -> (&str, &str) {
-    match inside.find('|') {
-        Some(idx) => (inside[..idx].trim(), inside[idx + 1..].trim()),
-        None => {
-            let t = inside.trim();
-            (t, t)
-        }
-    }
+fn render_link(url: &str, display: &str) -> String {
+    format!(
+        r#"<a class="wikilink" href="{}">{}</a>"#,
+        html::escape(url),
+        html::escape(display)
+    )
+}
+
+fn render_nolink(display: &str) -> String {
+    format!(r#"<span class="nolink">{}</span>"#, html::escape(display))
 }
 
 /// Split a wikilink target into an optional path prefix and a stem segment.
@@ -173,8 +177,8 @@ fn resolve<'a>(target: &str, source_id_path: &Path, docs: &'a [DocMeta]) -> Opti
         best = match best {
             None => Some((doc, dist)),
             Some((curr, curr_dist)) => {
-                let better = dist < curr_dist
-                    || (dist == curr_dist && doc.id_path < curr.id_path);
+                let better =
+                    dist < curr_dist || (dist == curr_dist && doc.id_path < curr.id_path);
                 if better {
                     Some((doc, dist))
                 } else {
@@ -208,112 +212,120 @@ mod tests {
         DocMeta::from(&d)
     }
 
+    /// Parse `body` as Markdown with the wikilink extension, resolve wikilinks
+    /// on the AST, and render to HTML — the same path `markup::render` drives.
+    fn render_md(body: &str, source: &Doc, docs: &[DocMeta]) -> (String, Vec<PathBuf>) {
+        let arena = comrak::Arena::new();
+        let mut options = comrak::Options::default();
+        options.render.r#unsafe = true;
+        options.extension.wikilinks_title_after_pipe = true;
+        let root = comrak::parse_document(&arena, body, &options);
+        let outlinks = resolve_in_ast(root, source, docs);
+        let mut out = String::new();
+        comrak::format_html(root, &options, &mut out).unwrap();
+        (out, outlinks)
+    }
+
     #[test]
-    fn expand_resolves_same_dir() {
+    fn resolves_same_dir() {
         let source = source_doc("blog/a.md");
         let docs = vec![DocMeta::from(&source), doc_at("blog/b.md")];
-        let (out, outlinks) = expand("see [[b]]", &source, &docs);
-        assert_eq!(out, r#"see <a class="wikilink" href="/blog/b.html">b</a>"#);
+        let (out, outlinks) = render_md("see [[b]]", &source, &docs);
+        assert!(out.contains(r#"<a class="wikilink" href="/blog/b.html">b</a>"#));
         assert_eq!(outlinks, vec![PathBuf::from("blog/b.md")]);
     }
 
     #[test]
-    fn expand_walks_to_parent() {
+    fn walks_to_parent() {
         let source = source_doc("blog/2025/deep.md");
         let docs = vec![DocMeta::from(&source), doc_at("hello.md")];
-        let (out, outlinks) = expand("see [[hello]]", &source, &docs);
+        let (out, outlinks) = render_md("see [[hello]]", &source, &docs);
         assert!(out.contains(r#"href="/hello.html""#));
         assert_eq!(outlinks, vec![PathBuf::from("hello.md")]);
     }
 
     #[test]
-    fn expand_walks_multiple_levels() {
+    fn walks_multiple_levels() {
         let source = source_doc("a/b/c/d.md");
         let docs = vec![DocMeta::from(&source), doc_at("top.md")];
-        let (out, _) = expand("[[top]]", &source, &docs);
+        let (out, _) = render_md("[[top]]", &source, &docs);
         assert!(out.contains(r#"href="/top.html""#));
     }
 
     #[test]
-    fn expand_uses_display_text() {
+    fn uses_display_text() {
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source), doc_at("b.md")];
-        let (out, _) = expand("[[b|click here]]", &source, &docs);
-        assert_eq!(
-            out,
-            r#"<a class="wikilink" href="/b.html">click here</a>"#
-        );
+        let (out, _) = render_md("[[b|click here]]", &source, &docs);
+        assert!(out.contains(r#"<a class="wikilink" href="/b.html">click here</a>"#));
     }
 
     #[test]
-    fn expand_unresolved_emits_nolink_span() {
+    fn unresolved_emits_nolink_span() {
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source)];
-        let (out, outlinks) = expand("[[Missing]]", &source, &docs);
-        assert_eq!(out, r#"<span class="nolink">Missing</span>"#);
+        let (out, outlinks) = render_md("[[Missing]]", &source, &docs);
+        assert!(out.contains(r#"<span class="nolink">Missing</span>"#));
         assert!(outlinks.is_empty());
     }
 
     #[test]
-    fn expand_records_outlinks() {
+    fn records_outlinks() {
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source), doc_at("b.md"), doc_at("c.md")];
-        let (_, outlinks) = expand("[[b]] and [[c]]", &source, &docs);
-        assert_eq!(
-            outlinks,
-            vec![PathBuf::from("b.md"), PathBuf::from("c.md")]
-        );
+        let (_, outlinks) = render_md("[[b]] and [[c]]", &source, &docs);
+        assert_eq!(outlinks, vec![PathBuf::from("b.md"), PathBuf::from("c.md")]);
     }
 
     #[test]
-    fn expand_dedups_outlinks() {
+    fn dedups_outlinks() {
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source), doc_at("b.md")];
-        let (_, outlinks) = expand("[[b]] [[b]] [[b|again]]", &source, &docs);
+        let (_, outlinks) = render_md("[[b]] [[b]] [[b|again]]", &source, &docs);
         assert_eq!(outlinks, vec![PathBuf::from("b.md")]);
     }
 
     #[test]
-    fn expand_escapes_html_in_display() {
+    fn display_does_not_emit_raw_html() {
+        // A label containing raw HTML must not produce executable markup.
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source), doc_at("b.md")];
-        let (out, _) = expand("[[b|<script>]]", &source, &docs);
-        assert!(out.contains("&lt;script&gt;"));
+        let (out, _) = render_md("[[b|<script>alert(1)</script>]]", &source, &docs);
         assert!(!out.contains("<script>"));
     }
 
     #[test]
-    fn expand_ignores_newline_in_brackets() {
+    fn wikilink_inside_code_fence_is_not_linked() {
+        // The headline win of parsing-then-resolving: comrak never produces a
+        // WikiLink node inside a code block, so `[[b]]` stays literal.
         let source = source_doc("a.md");
         let docs = vec![DocMeta::from(&source), doc_at("b.md")];
-        let (out, _) = expand("[[b\nfoo]]", &source, &docs);
-        assert_eq!(out, "[[b\nfoo]]");
-    }
-
-    #[test]
-    fn expand_ignores_nested_open_bracket() {
-        let source = source_doc("a.md");
-        let docs = vec![DocMeta::from(&source), doc_at("b.md")];
-        let (out, _) = expand("[[[b]]", &source, &docs);
-        // First `[[` aborts (sees `[` inside); next scan starts at `[b]]` which has no `[[`.
-        assert_eq!(out, "[[[b]]");
-    }
-
-    #[test]
-    fn expand_handles_unmatched_open() {
-        let source = source_doc("a.md");
-        let docs = vec![DocMeta::from(&source)];
-        let (out, _) = expand("text [[ no close", &source, &docs);
-        assert_eq!(out, "text [[ no close");
-    }
-
-    #[test]
-    fn expand_passes_through_no_wikilinks() {
-        let source = source_doc("a.md");
-        let docs = vec![DocMeta::from(&source)];
-        let (out, outlinks) = expand("plain markdown text", &source, &docs);
-        assert_eq!(out, "plain markdown text");
+        let (out, outlinks) = render_md("```\n[[b]]\n```", &source, &docs);
+        assert!(!out.contains("wikilink"));
+        assert!(out.contains("[[b]]"));
         assert!(outlinks.is_empty());
+    }
+
+    #[test]
+    fn wikilink_inside_inline_code_is_not_linked() {
+        let source = source_doc("a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("b.md")];
+        let (out, outlinks) = render_md("use `[[b]]` syntax", &source, &docs);
+        assert!(!out.contains("wikilink"));
+        assert!(outlinks.is_empty());
+    }
+
+    #[test]
+    fn uses_to_url_for_index_html_dirs() {
+        // A doc with a permalink-style output_path (trailing /index.html) should
+        // render as a dir URL via to_url.
+        let source = source_doc("a.md");
+        let docs = vec![
+            DocMeta::from(&source),
+            doc_with_permalink("b.md", "blog/b/index.html"),
+        ];
+        let (out, _) = render_md("[[b]]", &source, &docs);
+        assert!(out.contains(r#"href="/blog/b/""#));
     }
 
     #[test]
@@ -322,8 +334,8 @@ mod tests {
         // over the one in a parent dir.
         let source = doc_at("blog/post.md");
         let docs = vec![
-            doc_at("hello.md"),       // parent-dir candidate
-            doc_at("blog/hello.md"),  // same-dir candidate (should win)
+            doc_at("hello.md"),      // parent-dir candidate
+            doc_at("blog/hello.md"), // same-dir candidate (should win)
         ];
         let hit = resolve("hello", &source.id_path, &docs).unwrap();
         assert_eq!(hit.id_path, PathBuf::from("blog/hello.md"));
@@ -345,22 +357,9 @@ mod tests {
     }
 
     #[test]
-    fn expand_uses_to_url_for_index_html_dirs() {
-        // A doc with a permalink-style output_path (trailing /index.html) should
-        // render as a dir URL via to_url.
-        let source = source_doc("a.md");
-        let docs = vec![
-            DocMeta::from(&source),
-            doc_with_permalink("b.md", "blog/b/index.html"),
-        ];
-        let (out, _) = expand("[[b]]", &source, &docs);
-        assert!(out.contains(r#"href="/blog/b/""#));
-    }
-
-    #[test]
     fn resolve_finds_cross_subtree_neighbor() {
         // Source's ancestor chain has no match, but a deep neighbor in a sibling
-        // subtree does — the new global lookup must find it.
+        // subtree does — the global lookup must find it.
         let source = doc_at("blog/2025/post.md");
         let docs = vec![doc_at("reference/glossary.md")];
         let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
@@ -373,10 +372,7 @@ mod tests {
         // distance wins. blog/glossary.md (dist 1) beats reference/glossary.md
         // (dist 3) from blog/2025/post.md.
         let source = doc_at("blog/2025/post.md");
-        let docs = vec![
-            doc_at("reference/glossary.md"),
-            doc_at("blog/glossary.md"),
-        ];
+        let docs = vec![doc_at("reference/glossary.md"), doc_at("blog/glossary.md")];
         let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
         assert_eq!(hit.id_path, PathBuf::from("blog/glossary.md"));
     }
@@ -386,10 +382,7 @@ mod tests {
         // Two candidates equidistant from source — pick the lexicographically
         // smaller id_path for determinism.
         let source = doc_at("root.md");
-        let docs = vec![
-            doc_at("zeta/glossary.md"),
-            doc_at("alpha/glossary.md"),
-        ];
+        let docs = vec![doc_at("zeta/glossary.md"), doc_at("alpha/glossary.md")];
         let hit = resolve("Glossary", &source.id_path, &docs).unwrap();
         assert_eq!(hit.id_path, PathBuf::from("alpha/glossary.md"));
     }
@@ -399,10 +392,7 @@ mod tests {
         // Even though blog/glossary.md is closer, [[reference/Glossary]] must
         // resolve only to the prefix-matching candidate.
         let source = doc_at("blog/2025/post.md");
-        let docs = vec![
-            doc_at("blog/glossary.md"),
-            doc_at("reference/glossary.md"),
-        ];
+        let docs = vec![doc_at("blog/glossary.md"), doc_at("reference/glossary.md")];
         let hit = resolve("reference/Glossary", &source.id_path, &docs).unwrap();
         assert_eq!(hit.id_path, PathBuf::from("reference/glossary.md"));
     }

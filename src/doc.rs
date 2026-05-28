@@ -58,7 +58,7 @@ impl From<&Doc> for DocMeta {
 /// field on `Doc` to keep in sync. `read::run` filters authored content to
 /// `md|html|yaml`. The default arm is `Raw` so generator-emitted docs
 /// (`.xml`, etc.) and authored `.html` pass through Tera without running
-/// through pulldown-cmark.
+/// through comrak.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
     Markdown,
