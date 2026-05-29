@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde_yaml_ng::Mapping;
+use serde_yaml_ng::{Mapping, Value};
 
 const FENCE: &str = "---";
 
@@ -25,7 +25,7 @@ pub fn split(source: &str) -> (Option<&str>, &str) {
 }
 
 /// Parse a YAML string into a `Mapping`. Empty input parses to an empty map.
-pub fn parse_yaml(yaml: &str) -> Result<Mapping> {
+pub fn parse_mapping(yaml: &str) -> Result<Mapping> {
     if yaml.trim().is_empty() {
         return Ok(Mapping::new());
     }
@@ -34,14 +34,28 @@ pub fn parse_yaml(yaml: &str) -> Result<Mapping> {
 
 /// Split a source string and parse its frontmatter in one call. Missing or
 /// empty frontmatter yields an empty `Mapping`; a present block with
-/// malformed YAML yields `Err`.
-pub fn parse(source: &str) -> Result<(Mapping, &str)> {
+/// malformed YAML yields `Err`. The body is returned owned so callers can
+/// build a `Doc` without a second copy.
+pub fn parse(source: &str) -> Result<(Mapping, String)> {
     let (yaml, body) = split(source);
     let data = match yaml {
-        Some(y) => parse_yaml(y)?,
+        Some(y) => parse_mapping(y)?,
         None => Mapping::new(),
     };
-    Ok((data, body))
+    Ok((data, body.to_string()))
+}
+
+/// Parse a `.yaml` document: the whole file is the data map, and its
+/// `content` field (a string, if present) is split out as the body. The
+/// `content` key is removed from the map so the body isn't stored twice; a
+/// missing or non-string `content` yields an empty body.
+pub fn parse_yaml(source: &str) -> Result<(Mapping, String)> {
+    let mut data = parse_mapping(source)?;
+    let content = match data.remove("content") {
+        Some(Value::String(s)) => s,
+        _ => String::new(),
+    };
+    Ok((data, content))
 }
 
 fn strip_fence_line(s: &str) -> Option<&str> {
@@ -120,18 +134,40 @@ mod tests {
         let (fm, body) = split(source);
         assert_eq!(fm, Some(""));
         assert_eq!(body, "body");
-        assert!(parse_yaml(fm.unwrap()).unwrap().is_empty());
+        assert!(parse_mapping(fm.unwrap()).unwrap().is_empty());
     }
 
     #[test]
-    fn parse_yaml_empty_is_empty_map() {
-        assert!(parse_yaml("").unwrap().is_empty());
-        assert!(parse_yaml("   \n\n").unwrap().is_empty());
+    fn parse_mapping_empty_is_empty_map() {
+        assert!(parse_mapping("").unwrap().is_empty());
+        assert!(parse_mapping("   \n\n").unwrap().is_empty());
     }
 
     #[test]
-    fn parse_yaml_invalid_errors() {
-        assert!(parse_yaml("title: [unterminated").is_err());
+    fn parse_mapping_invalid_errors() {
+        assert!(parse_mapping("title: [unterminated").is_err());
+    }
+
+    #[test]
+    fn parse_yaml_splits_content_and_removes_key() {
+        let (data, body) = parse_yaml("title: Hi\ncontent: \"<p>x</p>\"\n").unwrap();
+        assert_eq!(body, "<p>x</p>");
+        assert_eq!(data.get("title").and_then(|v| v.as_str()), Some("Hi"));
+        // The `content` key is dropped from the map so the body isn't duplicated.
+        assert!(data.get("content").is_none());
+    }
+
+    #[test]
+    fn parse_yaml_missing_content_is_empty_body() {
+        let (data, body) = parse_yaml("title: Hi\n").unwrap();
+        assert_eq!(body, "");
+        assert_eq!(data.get("title").and_then(|v| v.as_str()), Some("Hi"));
+    }
+
+    #[test]
+    fn parse_yaml_non_string_content_is_empty_body() {
+        let (_, body) = parse_yaml("content: 42\n").unwrap();
+        assert_eq!(body, "");
     }
 
     #[test]

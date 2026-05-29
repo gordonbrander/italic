@@ -83,7 +83,7 @@ impl Generator {
             permalink,
             template,
             weight,
-            body: body.to_string(),
+            body,
             data,
         })
     }

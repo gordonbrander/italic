@@ -128,7 +128,7 @@ impl Doc {
     /// YAML; missing or unterminated frontmatter is silently treated as no
     /// frontmatter (see `frontmatter::split`).
     pub fn parse(id_path: PathBuf, source: &str) -> Result<Doc> {
-        let (data, body) = split_markdown(source)?;
+        let (data, body) = frontmatter::parse(source)?;
         Ok(Doc::new(id_path, body, data))
     }
 
@@ -136,7 +136,7 @@ impl Doc {
     /// `content` field (if present and a string) becomes the body. Non-string
     /// or missing `content` defaults to an empty body.
     pub fn parse_yaml(id_path: PathBuf, source: &str) -> Result<Doc> {
-        let (data, content) = split_yaml(source)?;
+        let (data, content) = frontmatter::parse_yaml(source)?;
         Ok(Doc::new(id_path, content, data))
     }
 
@@ -159,8 +159,8 @@ impl Doc {
         let meta = fs::metadata(&fs_path)
             .with_context(|| format!("could not stat {}", fs_path.display()))?;
         let (mut data, body) = match DocKind::from(id_path) {
-            DocKind::Yaml => split_yaml(&source),
-            _ => split_markdown(&source),
+            DocKind::Yaml => frontmatter::parse_yaml(&source),
+            _ => frontmatter::parse(&source),
         }
         .with_context(|| format!("could not parse {}", fs_path.display()))?;
         // Merge config defaults into the raw frontmatter before constructing
@@ -189,27 +189,6 @@ impl Doc {
         }
         Ok(doc)
     }
-}
-
-/// Split a markdown/raw source into its frontmatter map and body. Shared by
-/// `Doc::parse` and `Doc::load` so the merge of config defaults can slot
-/// between the split and `Doc::new`.
-fn split_markdown(source: &str) -> Result<(Mapping, String)> {
-    let (data, body) = frontmatter::parse(source)?;
-    Ok((data, body.to_string()))
-}
-
-/// Split a `.yaml` source into its data map and body. The whole file is the
-/// data map; the `content` field (string, if present) becomes the body.
-/// Shared by `Doc::parse_yaml` and `Doc::load`.
-fn split_yaml(source: &str) -> Result<(Mapping, String)> {
-    let data = frontmatter::parse_yaml(source)?;
-    let content = data
-        .get("content")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_default();
-    Ok((data, content))
 }
 
 fn resolve_output_path(id_path: &Path, data: &Mapping, date: &DateTime<Utc>) -> PathBuf {
