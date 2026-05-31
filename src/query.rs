@@ -138,51 +138,53 @@ impl Query {
     }
 }
 
-/// Linear scan over `docs`: filter, sort, then truncate. Accepts any `&Doc`
-/// iterator (a `&[Doc]` slice or `DocIndex`'s `HashMap` values), so there are no
-/// secondary indexes — the spec §11 "fully populated before listing" invariant
-/// is what makes this correct, not the data structure.
-pub fn evaluate<'a>(q: &Query, docs: impl IntoIterator<Item = &'a Doc>) -> Vec<&'a Doc> {
-    let matcher: Option<GlobMatcher> = q.path.as_ref().map(Glob::compile_matcher);
-    let omit: HashSet<&Path> = q.omit.iter().map(PathBuf::as_path).collect();
+impl Query {
+    /// Linear scan over `docs`: filter, sort, then truncate. Accepts any `&Doc`
+    /// iterator (a `&[Doc]` slice or `DocIndex`'s `HashMap` values), so there are
+    /// no secondary indexes — the spec §11 "fully populated before listing"
+    /// invariant is what makes this correct, not the data structure.
+    pub fn evaluate<'a>(&self, docs: impl IntoIterator<Item = &'a Doc>) -> Vec<&'a Doc> {
+        let matcher: Option<GlobMatcher> = self.path.as_ref().map(Glob::compile_matcher);
+        let omit: HashSet<&Path> = self.omit.iter().map(PathBuf::as_path).collect();
 
-    let mut results: Vec<&Doc> = docs
-        .into_iter()
-        .filter(|d| {
-            if let Some(m) = &matcher
-                && !m.is_match(&d.id_path)
-            {
-                return false;
-            }
-            if omit.contains(d.id_path.as_path()) {
-                return false;
-            }
-            true
-        })
-        .collect();
+        let mut results: Vec<&Doc> = docs
+            .into_iter()
+            .filter(|d| {
+                if let Some(m) = &matcher
+                    && !m.is_match(&d.id_path)
+                {
+                    return false;
+                }
+                if omit.contains(d.id_path.as_path()) {
+                    return false;
+                }
+                true
+            })
+            .collect();
 
-    results.sort_by(|a, b| {
-        let cmp = match q.order_by {
-            OrderKey::Title => a.title.cmp(&b.title),
-            OrderKey::Date => a.date.cmp(&b.date),
-            OrderKey::Updated => a.updated.cmp(&b.updated),
-        };
-        let cmp = match q.sort {
-            SortDir::Asc => cmp,
-            SortDir::Desc => cmp.reverse(),
-        };
-        // Stable tiebreak on `id_path` for a total order regardless of input
-        // order. `DocIndex` already yields docs sorted by `id_path`, but the
-        // generator path passes a `Vec` in filesystem-walk order, so without
-        // this two docs with equal sort keys could swap between runs/machines.
-        cmp.then_with(|| a.id_path.cmp(&b.id_path))
-    });
+        results.sort_by(|a, b| {
+            let cmp = match self.order_by {
+                OrderKey::Title => a.title.cmp(&b.title),
+                OrderKey::Date => a.date.cmp(&b.date),
+                OrderKey::Updated => a.updated.cmp(&b.updated),
+            };
+            let cmp = match self.sort {
+                SortDir::Asc => cmp,
+                SortDir::Desc => cmp.reverse(),
+            };
+            // Stable tiebreak on `id_path` for a total order regardless of input
+            // order. `DocIndex` already yields docs sorted by `id_path`, but the
+            // generator path passes a `Vec` in filesystem-walk order, so without
+            // this two docs with equal sort keys could swap between runs/machines.
+            cmp.then_with(|| a.id_path.cmp(&b.id_path))
+        });
 
-    if let Some(n) = q.limit {
-        results.truncate(n);
+        if let Some(n) = self.limit {
+            results.truncate(n);
+        }
+
+        results
     }
-
-    results
 }
 
 #[cfg(test)]
@@ -268,7 +270,7 @@ mod tests {
             doc("pages/c.md", "C", "2025-01-03"),
         ];
         let q = Query::from_yaml_mapping(&yaml_mapping("path: \"posts/*.md\"\n")).unwrap();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "A");
     }
@@ -281,7 +283,7 @@ mod tests {
             doc("c.md", "C", "2025-03-01"),
         ];
         let q = Query::default();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         let titles: Vec<&str> = results.iter().map(|d| d.title.as_str()).collect();
         assert_eq!(titles, vec!["C", "B", "A"]);
     }
@@ -294,7 +296,7 @@ mod tests {
             doc("c.md", "Bravo", "2025-01-03"),
         ];
         let q = Query::from_yaml_mapping(&yaml_mapping("order_by: title\nsort: asc\n")).unwrap();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         let titles: Vec<&str> = results.iter().map(|d| d.title.as_str()).collect();
         assert_eq!(titles, vec!["Alpha", "Bravo", "Charlie"]);
     }
@@ -307,7 +309,7 @@ mod tests {
             doc("c.md", "C", "2025-03-01"),
         ];
         let q = Query::from_yaml_mapping(&yaml_mapping("omit:\n  - b.md\n")).unwrap();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         let titles: Vec<&str> = results.iter().map(|d| d.title.as_str()).collect();
         assert_eq!(titles, vec!["C", "A"]);
     }
@@ -319,7 +321,7 @@ mod tests {
             doc("b.md", "B", "2025-02-01"),
         ];
         let q = Query::from_yaml_mapping(&yaml_mapping("omit:\n  - nope.md\n")).unwrap();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         assert_eq!(results.len(), 2);
     }
 
@@ -331,7 +333,7 @@ mod tests {
             doc("c.md", "C", "2025-03-01"),
         ];
         let q = Query::from_yaml_mapping(&yaml_mapping("limit: 2\n")).unwrap();
-        let results = evaluate(&q, &docs);
+        let results = q.evaluate(&docs);
         let titles: Vec<&str> = results.iter().map(|d| d.title.as_str()).collect();
         assert_eq!(titles, vec!["C", "B"]);
     }

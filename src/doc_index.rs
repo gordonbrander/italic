@@ -17,7 +17,7 @@
 //!   [`DocIndex::define_taxonomies`].
 
 use crate::doc::{Doc, DocMeta};
-use crate::query::{self, Query};
+use crate::query::Query;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -87,7 +87,8 @@ impl DocIndex {
     /// Evaluate `query` once over every doc and cache the matching `id_path`s,
     /// in query order, under `name`.
     pub fn define_collection(&mut self, name: &str, query: &Query) {
-        let ids = query::evaluate(query, self.docs.values())
+        let ids = query
+            .evaluate(self.docs.values())
             .into_iter()
             .map(|d| d.id_path.clone())
             .collect();
