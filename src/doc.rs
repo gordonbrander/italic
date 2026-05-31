@@ -1,6 +1,7 @@
 use crate::defaults::Defaults;
 use crate::frontmatter;
 use crate::permalink;
+use crate::taxonomy::Taxonomy;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -17,13 +18,14 @@ pub struct Doc {
     pub title: String,
     pub summary: String,
     pub content: String,
-    /// Tags keyed by slug → display text. Built from frontmatter `tags:` and,
-    /// when the `hashtags` config flag is set, from inline `#hashtag`s found in
-    /// the body during the markup phase. A `BTreeMap` so iteration (and thus
-    /// rendered output) is deterministic, sorted by slug, and tags that
-    /// slugify identically collapse to one entry. Serializes to a slug→text
-    /// object for templates: `{% for slug, text in page.tags %}`.
-    pub tags: BTreeMap<String, String>,
+    /// Term memberships, keyed by taxonomy name → (slug → display text). Built
+    /// from each taxonomy's frontmatter field (e.g. `tags:`, `categories:`) and,
+    /// for the built-in `tags` taxonomy when the `hashtags` config flag is set,
+    /// from inline `#hashtag`s found in the body during the markup phase. The
+    /// inner `BTreeMap` keeps iteration deterministic (sorted by slug) and
+    /// collapses terms that slugify identically. Serializes to a nested object
+    /// for templates: `{% for slug, text in page.terms.tags %}`.
+    pub terms: BTreeMap<String, BTreeMap<String, String>>,
     pub date: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub data: Mapping,
@@ -43,7 +45,7 @@ pub struct DocMeta {
     pub output_path: PathBuf,
     pub title: String,
     pub summary: String,
-    pub tags: BTreeMap<String, String>,
+    pub terms: BTreeMap<String, BTreeMap<String, String>>,
     pub date: DateTime<Utc>,
     pub updated: DateTime<Utc>,
 }
@@ -55,7 +57,7 @@ impl From<&Doc> for DocMeta {
             output_path: doc.output_path.clone(),
             title: doc.title.clone(),
             summary: doc.summary.clone(),
-            tags: doc.tags.clone(),
+            terms: doc.terms.clone(),
             date: doc.date,
             updated: doc.updated,
         }
@@ -94,7 +96,7 @@ impl Default for Doc {
             title: String::new(),
             summary: String::new(),
             content: String::new(),
-            tags: BTreeMap::new(),
+            terms: BTreeMap::new(),
             date: DateTime::<Utc>::UNIX_EPOCH,
             updated: DateTime::<Utc>::UNIX_EPOCH,
             data: Mapping::new(),
@@ -105,13 +107,14 @@ impl Default for Doc {
 
 impl Doc {
     /// Assemble a Doc from already-split inputs. Uplifts `title`, `template`,
-    /// `tags`, `date`, `updated` from `data` per spec §5. No filesystem
-    /// fallback for dates — that's `load`'s job.
-    pub fn new(id_path: PathBuf, content: String, data: Mapping) -> Doc {
+    /// `terms`, `date`, `updated` from `data` per spec §5. `taxonomies` drives
+    /// term uplift (one bucket per taxonomy, read from its frontmatter field).
+    /// No filesystem fallback for dates — that's `load`'s job.
+    pub fn new(id_path: PathBuf, content: String, data: Mapping, taxonomies: &[Taxonomy]) -> Doc {
         let title = uplift_string(&data, "title").unwrap_or_default();
         let summary = uplift_string(&data, "summary").unwrap_or_default();
         let template = uplift_string(&data, "template");
-        let tags = uplift_tags(&data);
+        let terms = uplift_terms(&data, taxonomies);
         let date = parse_date(data.get("date")).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
         let updated = parse_date(data.get("updated")).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
         let output_path = resolve_output_path(&id_path, &data, &date);
@@ -122,7 +125,7 @@ impl Doc {
             title,
             summary,
             content,
-            tags,
+            terms,
             date,
             updated,
             data,
@@ -134,17 +137,17 @@ impl Doc {
     /// Returns Err only if a present frontmatter block contains malformed
     /// YAML; missing or unterminated frontmatter is silently treated as no
     /// frontmatter (see `frontmatter::split`).
-    pub fn parse(id_path: PathBuf, source: &str) -> Result<Doc> {
+    pub fn parse(id_path: PathBuf, source: &str, taxonomies: &[Taxonomy]) -> Result<Doc> {
         let (data, body) = frontmatter::parse(source)?;
-        Ok(Doc::new(id_path, body, data))
+        Ok(Doc::new(id_path, body, data, taxonomies))
     }
 
     /// Build a Doc from a `.yaml` source: the whole file is the data map; the
     /// `content` field (if present and a string) becomes the body. Non-string
     /// or missing `content` defaults to an empty body.
-    pub fn parse_yaml(id_path: PathBuf, source: &str) -> Result<Doc> {
+    pub fn parse_yaml(id_path: PathBuf, source: &str, taxonomies: &[Taxonomy]) -> Result<Doc> {
         let (data, content) = frontmatter::parse_yaml(source)?;
-        Ok(Doc::new(id_path, content, data))
+        Ok(Doc::new(id_path, content, data, taxonomies))
     }
 
     /// Returns the kind of this doc as derived from `id_path`'s extension.
@@ -159,7 +162,12 @@ impl Doc {
     /// Read `content_dir.join(id_path)` from disk, parse it, and apply the
     /// filesystem-based fallback chain for `date` (created → modified) and
     /// `updated` (modified) when frontmatter didn't supply a parseable value.
-    pub fn load(content_dir: &Path, id_path: &Path, defaults: &Defaults) -> Result<Doc> {
+    pub fn load(
+        content_dir: &Path,
+        id_path: &Path,
+        defaults: &Defaults,
+        taxonomies: &[Taxonomy],
+    ) -> Result<Doc> {
         let fs_path = content_dir.join(id_path);
         let source = fs::read_to_string(&fs_path)
             .with_context(|| format!("could not read {}", fs_path.display()))?;
@@ -173,7 +181,7 @@ impl Doc {
         // Merge config defaults into the raw frontmatter before constructing
         // the Doc, so uplifted fields and the expanded permalink reflect them.
         defaults.apply(id_path, &mut data);
-        let mut doc = Doc::new(id_path.to_path_buf(), body, data);
+        let mut doc = Doc::new(id_path.to_path_buf(), body, data, taxonomies);
 
         let date_from_fs = parse_date(doc.data.get("date")).is_none();
         if date_from_fs {
@@ -209,29 +217,38 @@ fn uplift_string(data: &Mapping, key: &str) -> Option<String> {
     data.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-fn uplift_tags(data: &Mapping) -> BTreeMap<String, String> {
-    let mut tags = BTreeMap::new();
-    let Some(Value::Sequence(seq)) = data.get("tags") else {
-        return tags;
-    };
-    for v in seq {
-        if let Some(text) = v.as_str() {
-            insert_tag(&mut tags, text);
+/// Build the per-doc `terms` map: one bucket per configured taxonomy, read from
+/// that taxonomy's frontmatter `field` as a string sequence. A bucket is always
+/// created for every taxonomy (even when empty) so the shape is stable for
+/// templates and the markup-phase hashtag pass can find `terms["tags"]`.
+fn uplift_terms(
+    data: &Mapping,
+    taxonomies: &[Taxonomy],
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    let mut terms: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for tax in taxonomies {
+        let bucket = terms.entry(tax.name.clone()).or_default();
+        if let Some(Value::Sequence(seq)) = data.get(tax.field.as_str()) {
+            for v in seq {
+                if let Some(text) = v.as_str() {
+                    insert_term(bucket, text);
+                }
+            }
         }
     }
-    tags
+    terms
 }
 
 /// Slugify `text` and insert it under that slug → display text, first-write-
-/// wins (so a frontmatter tag's display text survives a later slug-colliding
+/// wins (so a frontmatter term's display text survives a later slug-colliding
 /// inline hashtag). No-op for text that slugifies to empty. Shared by
-/// `uplift_tags` and the markup-phase hashtag pass.
-pub(crate) fn insert_tag(tags: &mut BTreeMap<String, String>, text: &str) {
+/// `uplift_terms` and the markup-phase hashtag pass.
+pub(crate) fn insert_term(bucket: &mut BTreeMap<String, String>, text: &str) {
     let slug = slug::slugify(text);
     if slug.is_empty() {
         return;
     }
-    tags.entry(slug).or_insert_with(|| text.to_string());
+    bucket.entry(slug).or_insert_with(|| text.to_string());
 }
 
 pub(crate) fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
@@ -260,6 +277,11 @@ mod tests {
         m
     }
 
+    /// The default taxonomy set used in most tests: just built-in `tags`.
+    fn tax() -> Vec<Taxonomy> {
+        vec![Taxonomy::new("tags")]
+    }
+
     #[test]
     fn default_doc_uses_unix_epoch() {
         let d = Doc::default();
@@ -267,20 +289,20 @@ mod tests {
         assert_eq!(d.updated, DateTime::<Utc>::UNIX_EPOCH);
         assert_eq!(d.title, "");
         assert_eq!(d.summary, "");
-        assert!(d.tags.is_empty());
+        assert!(d.terms.is_empty());
         assert!(d.template.is_none());
     }
 
     #[test]
     fn new_uplifts_summary_from_frontmatter() {
         let data = map_from(&[("summary", Value::String("Hand-written blurb.".into()))]);
-        let d = Doc::new(PathBuf::from("p.md"), String::new(), data);
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), data, &tax());
         assert_eq!(d.summary, "Hand-written blurb.");
     }
 
     #[test]
     fn new_defaults_summary_to_empty_when_missing() {
-        let d = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new());
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new(), &tax());
         assert_eq!(d.summary, "");
     }
 
@@ -290,7 +312,7 @@ mod tests {
             ("title", Value::String("Hi".into())),
             ("template", Value::String("base.html".into())),
         ]);
-        let d = Doc::new(PathBuf::from("post.md"), String::new(), data);
+        let d = Doc::new(PathBuf::from("post.md"), String::new(), data, &tax());
         assert_eq!(d.title, "Hi");
         assert_eq!(d.template.as_deref(), Some("base.html"));
     }
@@ -305,18 +327,33 @@ mod tests {
                 Value::Number(serde_yaml_ng::Number::from(7)),
             ]),
         )]);
-        let d = Doc::new(PathBuf::from("p.md"), String::new(), data);
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), data, &tax());
         // Keyed by slug → display text; non-string entries (the `7`) are skipped.
-        assert_eq!(d.tags.len(), 2);
-        assert_eq!(d.tags["rust"], "rust");
-        assert_eq!(d.tags["ssg"], "ssg");
+        let tags = &d.terms["tags"];
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags["rust"], "rust");
+        assert_eq!(tags["ssg"], "ssg");
+    }
+
+    #[test]
+    fn new_uplifts_custom_taxonomy_field() {
+        let data = map_from(&[(
+            "categories",
+            Value::Sequence(vec![Value::String("Tech".into())]),
+        )]);
+        let taxonomies = vec![Taxonomy::new("tags"), Taxonomy::new("categories")];
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), data, &taxonomies);
+        assert_eq!(d.terms["categories"]["tech"], "Tech");
+        // `tags` bucket exists but is empty.
+        assert!(d.terms["tags"].is_empty());
     }
 
     #[test]
     fn new_defaults_when_keys_missing() {
-        let d = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new());
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new(), &tax());
         assert_eq!(d.title, "");
-        assert!(d.tags.is_empty());
+        // A bucket is created per taxonomy even with no terms.
+        assert!(d.terms["tags"].is_empty());
         assert!(d.template.is_none());
         assert_eq!(d.date, DateTime::<Utc>::UNIX_EPOCH);
     }
@@ -324,13 +361,13 @@ mod tests {
     #[test]
     fn new_preserves_uplifted_keys_in_data() {
         let data = map_from(&[("title", Value::String("Hi".into()))]);
-        let d = Doc::new(PathBuf::from("p.md"), String::new(), data);
+        let d = Doc::new(PathBuf::from("p.md"), String::new(), data, &tax());
         assert_eq!(d.data.get("title").and_then(Value::as_str), Some("Hi"));
     }
 
     #[test]
     fn output_path_swaps_extension_to_html() {
-        let d = Doc::new(PathBuf::from("blog/post.md"), String::new(), Mapping::new());
+        let d = Doc::new(PathBuf::from("blog/post.md"), String::new(), Mapping::new(), &tax());
         assert_eq!(d.output_path, PathBuf::from("blog/post.html"));
     }
 
@@ -358,12 +395,12 @@ mod tests {
     #[test]
     fn parse_returns_err_on_malformed_yaml() {
         let source = "---\ntitle: [unterminated\n---\nbody";
-        assert!(Doc::parse(PathBuf::from("p.md"), source).is_err());
+        assert!(Doc::parse(PathBuf::from("p.md"), source, &tax()).is_err());
     }
 
     #[test]
     fn parse_treats_missing_frontmatter_as_empty() {
-        let d = Doc::parse(PathBuf::from("p.md"), "# Body\n").unwrap();
+        let d = Doc::parse(PathBuf::from("p.md"), "# Body\n", &tax()).unwrap();
         assert_eq!(d.content, "# Body\n");
         assert!(d.data.is_empty());
     }
@@ -375,18 +412,18 @@ mod tests {
         let mut f = fs::File::create(&path).unwrap();
         writeln!(f, "---\ndate: 2025-10-31\n---\nbody").unwrap();
         drop(f);
-        let d = Doc::load(&dir, Path::new("post.md"), &Defaults::default()).unwrap();
+        let d = Doc::load(&dir, Path::new("post.md"), &Defaults::default(), &tax()).unwrap();
         assert_eq!(d.date.to_rfc3339(), "2025-10-31T00:00:00+00:00");
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn kind_dispatches_on_extension() {
-        let md = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new());
-        let html = Doc::new(PathBuf::from("p.html"), String::new(), Mapping::new());
-        let yaml = Doc::new(PathBuf::from("p.yaml"), String::new(), Mapping::new());
-        let xml = Doc::new(PathBuf::from("p.xml"), String::new(), Mapping::new());
-        let extless = Doc::new(PathBuf::from("p"), String::new(), Mapping::new());
+        let md = Doc::new(PathBuf::from("p.md"), String::new(), Mapping::new(), &tax());
+        let html = Doc::new(PathBuf::from("p.html"), String::new(), Mapping::new(), &tax());
+        let yaml = Doc::new(PathBuf::from("p.yaml"), String::new(), Mapping::new(), &tax());
+        let xml = Doc::new(PathBuf::from("p.xml"), String::new(), Mapping::new(), &tax());
+        let extless = Doc::new(PathBuf::from("p"), String::new(), Mapping::new(), &tax());
         assert_eq!(md.kind(), DocKind::Markdown);
         assert_eq!(html.kind(), DocKind::Raw);
         assert_eq!(yaml.kind(), DocKind::Yaml);
@@ -399,34 +436,34 @@ mod tests {
     #[test]
     fn parse_yaml_extracts_content_and_uplifts() {
         let source = "title: Hi\ntags: [a, b]\ndate: 2025-10-31\ncontent: \"<p>body</p>\"\n";
-        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), source).unwrap();
+        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), source, &tax()).unwrap();
         assert_eq!(d.title, "Hi");
-        assert_eq!(d.tags["a"], "a");
-        assert_eq!(d.tags["b"], "b");
+        assert_eq!(d.terms["tags"]["a"], "a");
+        assert_eq!(d.terms["tags"]["b"], "b");
         assert_eq!(d.date.to_rfc3339(), "2025-10-31T00:00:00+00:00");
         assert_eq!(d.content, "<p>body</p>");
     }
 
     #[test]
     fn parse_yaml_defaults_content_when_missing() {
-        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), "title: Hi\n").unwrap();
+        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), "title: Hi\n", &tax()).unwrap();
         assert_eq!(d.content, "");
     }
 
     #[test]
     fn parse_yaml_defaults_content_when_non_string() {
-        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), "content: 42\n").unwrap();
+        let d = Doc::parse_yaml(PathBuf::from("p.yaml"), "content: 42\n", &tax()).unwrap();
         assert_eq!(d.content, "");
     }
 
     #[test]
     fn parse_yaml_errors_on_malformed_yaml() {
-        assert!(Doc::parse_yaml(PathBuf::from("p.yaml"), "title: [unterminated").is_err());
+        assert!(Doc::parse_yaml(PathBuf::from("p.yaml"), "title: [unterminated", &tax()).is_err());
     }
 
     #[test]
     fn parse_yaml_output_path_swaps_to_html() {
-        let d = Doc::parse_yaml(PathBuf::from("page.yaml"), "title: Hi\n").unwrap();
+        let d = Doc::parse_yaml(PathBuf::from("page.yaml"), "title: Hi\n", &tax()).unwrap();
         assert_eq!(d.output_path, PathBuf::from("page.html"));
     }
 
@@ -435,7 +472,7 @@ mod tests {
         let dir = tempdir();
         let path = dir.join("doc.yaml");
         fs::write(&path, "title: From YAML\ncontent: \"<p>hi</p>\"\n").unwrap();
-        let d = Doc::load(&dir, Path::new("doc.yaml"), &Defaults::default()).unwrap();
+        let d = Doc::load(&dir, Path::new("doc.yaml"), &Defaults::default(), &tax()).unwrap();
         assert_eq!(d.title, "From YAML");
         assert_eq!(d.content, "<p>hi</p>");
         let _ = fs::remove_dir_all(&dir);
@@ -446,7 +483,7 @@ mod tests {
         let dir = tempdir();
         let path = dir.join("post.md");
         fs::write(&path, "# Hello\n").unwrap();
-        let d = Doc::load(&dir, Path::new("post.md"), &Defaults::default()).unwrap();
+        let d = Doc::load(&dir, Path::new("post.md"), &Defaults::default(), &tax()).unwrap();
         // No frontmatter date — should pick up something more recent than the epoch
         // from the just-created file's metadata.
         assert!(d.date > DateTime::<Utc>::UNIX_EPOCH);
@@ -467,6 +504,7 @@ mod tests {
             &dir,
             Path::new("posts/hello.md"),
             &defaults("\"posts/*.md\":\n  permalink: \":yyyy/:mm/:dd/:slug/\"\n"),
+            &tax(),
         )
         .unwrap();
         assert_eq!(d.output_path, PathBuf::from("2025/03/07/hello/index.html"));
@@ -486,6 +524,7 @@ mod tests {
             &dir,
             Path::new("posts/hello.md"),
             &defaults("\"posts/*.md\":\n  permalink: \":slug\"\n"),
+            &tax(),
         )
         .unwrap();
         assert_eq!(d.output_path, PathBuf::from("custom/index.html"));

@@ -167,9 +167,15 @@ pub fn evaluate<'a>(q: &Query, docs: impl IntoIterator<Item = &'a Doc>) -> Vec<&
                 return false;
             }
             if let Some(tag) = &q.tag {
-                // Match by slug so `tag="My Tag"` and `tag="my-tag"` are
-                // equivalent — `d.tags` is keyed by the same slug.
-                if !d.tags.contains_key(&slug::slugify(tag)) {
+                // The `tag` filter matches terms of the built-in `tags`
+                // taxonomy. Match by slug so `tag="My Tag"` and `tag="my-tag"`
+                // are equivalent — the bucket is keyed by the same slug.
+                let slug = slug::slugify(tag);
+                let has = d
+                    .terms
+                    .get(crate::taxonomy::BUILTIN)
+                    .is_some_and(|bucket| bucket.contains_key(&slug));
+                if !has {
                     return false;
                 }
             }
@@ -295,9 +301,9 @@ mod tests {
     #[test]
     fn evaluate_filters_by_tag() {
         let mut a = doc("a.md", "A", "2025-01-01");
-        a.tags.insert("rust".into(), "rust".into());
+        a.terms.entry("tags".into()).or_default().insert("rust".into(), "rust".into());
         let mut b = doc("b.md", "B", "2025-01-02");
-        b.tags.insert("other".into(), "other".into());
+        b.terms.entry("tags".into()).or_default().insert("other".into(), "other".into());
         let docs = vec![a, b];
         let q = Query::from_yaml_mapping(&yaml_mapping("tag: rust\n")).unwrap();
         let results = evaluate(&q, &docs);

@@ -1,15 +1,20 @@
 //! The site build pipeline. Stages run in order, each consuming the index
-//! the previous stage left behind:
+//! the previous stage left behind. `║` marks the embarrassingly parallel
+//! (Rayon) stages — each only *reads* the frozen classification and *writes*
+//! its own doc(s); `classify` is the sequential barrier that produces that
+//! immutable snapshot:
 //!
 //! 1. [`read`] — scan `content/` into a [`DocIndex`](crate::doc_index::DocIndex).
-//! 2. [`markup`] — render markdown bodies through Tera + comrak.
-//! 3. [`generate`] — run `generators/` and append the emitted docs.
-//! 4. [`template`] — apply each doc's Tera template.
-//! 5. [`write`] — write rendered bodies to `output_dir`.
-//! 6. [`static_copy`] — copy `static/` over the top.
+//! 2. [`markup`] ║ — render markdown bodies through Tera + comrak.
+//! 3. [`classify`] — freeze collections + taxonomies from the source docs.
+//! 4. [`archive`] ║ — run `archives/` over the frozen classification, append
+//!    the emitted view pages (not re-classified).
+//! 5. [`template`] ║ — apply each doc's Tera template.
+//! 6. [`write`] — write rendered bodies to `output_dir`.
+//! 7. [`static_copy`] — copy `static/` over the top.
 
-pub mod generate;
-pub mod generator;
+pub mod archive;
+pub mod classify;
 pub mod markup;
 pub mod read;
 pub mod static_copy;
@@ -26,8 +31,11 @@ pub fn run() -> Result<()> {
     let site_data = SiteData::load(&config, site)?;
     let mut index = read::run(&config)?;
     markup::run(&config, &site_data, &mut index)?;
-    generate::run(&config, &site_data, &mut index)?;
-    template::run(&config, &site_data, &mut index)?;
+    // Freeze classification from source docs, then share it (by `Arc`) with the
+    // archives and template phases so both read the same immutable snapshot.
+    let classification = classify::run(&config, &index);
+    archive::run(&config, &site_data, &classification, &mut index)?;
+    template::run(&config, &site_data, &classification, &mut index)?;
     write::run(&config, &index)?;
     static_copy::run(&config)?;
     Ok(())

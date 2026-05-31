@@ -6,18 +6,16 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::sync::Arc;
 
-pub fn run(config: &Config, site_data: &SiteData, index: &mut DocIndex) -> Result<()> {
-    // Read snapshot of the fully-populated index (spec §11), with collections and
-    // the tags group defined on it. The env's `collection()`/`group()`/
-    // `backlinks` functions read from this frozen snapshot; the mutable `index`
-    // below is rendered in place. Collections/groups live only on the snapshot —
-    // the pipeline index doesn't need them once rendering is done.
-    let mut snapshot = index.clone();
-    for (name, query) in &config.collections {
-        snapshot.define_collection(name, query);
-    }
-    snapshot.define_tags_group();
-    let env = build_template_env(config, Arc::new(snapshot))?;
+pub fn run(
+    config: &Config,
+    site_data: &SiteData,
+    classification: &Arc<DocIndex>,
+    index: &mut DocIndex,
+) -> Result<()> {
+    // The env's `collection()`/`taxonomy()`/`backlinks` functions read from the
+    // frozen classification (source docs only — archive pages are absent by
+    // design). The mutable `index` below is rendered in place.
+    let env = build_template_env(config, classification.clone())?;
 
     // Each doc renders independently against the frozen `env`/`site_data` and
     // writes only its own `content`. `Tera::render` takes `&self`, so the env is

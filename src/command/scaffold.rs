@@ -16,12 +16,16 @@ const SCAFFOLD_FILES: &[(&str, &str)] = &[
         include_str!("../../scaffold/templates/base.html"),
     ),
     (
-        "generators/rss.xml",
-        include_str!("../../scaffold/generators/rss.xml"),
+        "templates/sitemap.xml",
+        include_str!("../../scaffold/templates/sitemap.xml"),
     ),
     (
-        "generators/sitemap.xml",
-        include_str!("../../scaffold/generators/sitemap.xml"),
+        "content/sitemap.html",
+        include_str!("../../scaffold/content/sitemap.html"),
+    ),
+    (
+        "archives/rss.xml",
+        include_str!("../../scaffold/archives/rss.xml"),
     ),
     ("static/.gitkeep", include_str!("../../scaffold/static/.gitkeep")),
 ];
@@ -96,7 +100,7 @@ mod tests {
         run(&dir).unwrap();
         assert!(dir.join("content/posts/hello.md").exists());
         assert!(dir.join("templates/base.html").exists());
-        assert!(dir.join("generators/sitemap.xml").exists());
+        assert!(dir.join("archives/rss.xml").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

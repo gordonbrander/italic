@@ -1,5 +1,6 @@
 use crate::defaults::Defaults;
 use crate::query::Query;
+use crate::taxonomy::{self, Taxonomy};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
@@ -14,7 +15,7 @@ pub struct Config {
     pub templates_dir: PathBuf,
     pub static_dir: PathBuf,
     pub data_dir: PathBuf,
-    pub generators_dir: PathBuf,
+    pub archives_dir: PathBuf,
     /// When set, the markup phase scans Markdown bodies for inline `#hashtag`s,
     /// adds them to each doc's `tags`, and strips them from the rendered HTML.
     /// Off by default so literal `#` in prose is untouched. Sourced from the
@@ -41,6 +42,13 @@ pub struct Config {
     /// `config.yaml` order; collection lookup is by name regardless.
     #[serde(skip)]
     pub collections: Vec<(String, Query)>,
+    /// Declared taxonomies (named classifications). Always includes the built-in
+    /// `tags` taxonomy unless the user opts out with `taxonomies: { tags: false
+    /// }`. Parsed from the `taxonomies:` key. The read phase uses each
+    /// taxonomy's `field` to uplift a doc's term memberships into `Doc.terms`,
+    /// and the classify phase inverts those into `taxonomy → term → docs`.
+    #[serde(skip)]
+    pub taxonomies: Vec<Taxonomy>,
 }
 
 impl Default for Config {
@@ -51,12 +59,13 @@ impl Default for Config {
             templates_dir: PathBuf::from("templates"),
             static_dir: PathBuf::from("static"),
             data_dir: PathBuf::from("data"),
-            generators_dir: PathBuf::from("generators"),
+            archives_dir: PathBuf::from("archives"),
             hashtags: false,
             site_url: None,
             base_path: String::new(),
             defaults: Defaults::default(),
             collections: Vec::new(),
+            taxonomies: vec![Taxonomy::new(taxonomy::BUILTIN)],
         }
     }
 }
@@ -76,7 +85,7 @@ impl Config {
             .with_context(|| format!("parsing {} into Config", path.display()))?;
         let raw: Value = serde_yaml_ng::from_str(&source)
             .with_context(|| format!("parsing {} as YAML", path.display()))?;
-        let (site, defaults_map, collections_map) = match raw {
+        let (site, defaults_map, collections_map, taxonomies_map) = match raw {
             Value::Mapping(mut m) => {
                 let site = match m.remove(Value::String("site".into())) {
                     Some(Value::Mapping(s)) => s,
@@ -90,9 +99,13 @@ impl Config {
                     Some(Value::Mapping(c)) => Some(c),
                     _ => None,
                 };
-                (site, defaults, collections)
+                let taxonomies = match m.remove(Value::String("taxonomies".into())) {
+                    Some(Value::Mapping(t)) => Some(t),
+                    _ => None,
+                };
+                (site, defaults, collections, taxonomies)
             }
-            _ => (Mapping::new(), None, None),
+            _ => (Mapping::new(), None, None, None),
         };
         if let Some(map) = defaults_map {
             config.defaults = Defaults::from_yaml_mapping(&map)
@@ -102,6 +115,10 @@ impl Config {
             config.collections = parse_collections(&map)
                 .with_context(|| format!("parsing `collections` in {}", path.display()))?;
         }
+        // Always parse (even when absent) so the built-in `tags` taxonomy is
+        // present unless the user explicitly opts out.
+        config.taxonomies = taxonomy::parse(taxonomies_map.as_ref())
+            .with_context(|| format!("parsing `taxonomies` in {}", path.display()))?;
         config.site_url = site
             .get(Value::String("url".into()))
             .and_then(|v| v.as_str())
@@ -297,6 +314,45 @@ mod tests {
         assert!(posts.path.is_some());
         assert_eq!(posts.limit, Some(5));
         cleanup(&dir);
+    }
+
+    #[test]
+    fn taxonomies_absent_yields_builtin_tags() {
+        let dir = tempdir();
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load(&path).unwrap();
+        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["tags"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn taxonomies_block_merges_with_builtin_tags() {
+        let dir = tempdir();
+        let path = write_config(&dir, "taxonomies:\n  categories:\n  series:\n    field: serie\n");
+        let (config, _) = Config::load(&path).unwrap();
+        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["tags", "categories", "series"]);
+        assert_eq!(config.taxonomies[2].field, "serie");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn taxonomies_tags_false_opts_out() {
+        let dir = tempdir();
+        let path = write_config(&dir, "taxonomies:\n  tags: false\n  categories:\n");
+        let (config, _) = Config::load(&path).unwrap();
+        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["categories"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn missing_file_yields_builtin_tags() {
+        let path = Path::new("/definitely/does/not/exist/config.yaml");
+        let (config, _) = Config::load(path).unwrap();
+        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["tags"]);
     }
 
     #[test]

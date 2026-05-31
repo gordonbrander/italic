@@ -19,7 +19,7 @@ const SUMMARY_MAX_CHARS: usize = 250;
 /// wikilinks on the AST (populating `doc.links`), and renders to HTML.
 /// Wikilink target resolution uses `env.stem_index`, the frozen stem→candidate
 /// grouping built when the env was constructed. Exposed publicly so
-/// `generate::run` can apply the same transformation to its emitted docs.
+/// `archive::run` can apply the same transformation to its emitted docs.
 pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Result<()> {
     let mut ctx = tera::Context::new();
     ctx.insert("page", &*doc);
@@ -27,6 +27,9 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
     ctx.insert("data", &site_data.data);
     if let Some(pagination) = doc.data.get("pagination") {
         ctx.insert("pagination", pagination);
+    }
+    if let Some(term) = doc.data.get("term") {
+        ctx.insert("term", term);
     }
 
     // Tera over the body string runs unescaped (the one-off template has
@@ -56,14 +59,19 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
             let arena = comrak::Arena::new();
             let root = comrak::parse_document(&arena, &rendered, &env.options);
             doc.links = wikilink::resolve_in_ast(root, doc, &env.stem_index);
-            // Inline `#hashtag`s (opt-in): extracted into `doc.tags` and
+            // Inline `#hashtag`s (opt-in): extracted into the built-in `tags`
+            // bucket of `doc.terms` and
             // stripped from the body. Tags added here land too late for this
             // doc's own body Tera (already rendered above) but are visible to
             // the generate phase (live index) and the template phase (its
             // snapshot is cloned after markup) — same lifecycle as `doc.links`.
             if env.hashtags {
+                let bucket = doc
+                    .terms
+                    .entry(crate::taxonomy::BUILTIN.to_string())
+                    .or_default();
                 for text in hashtag::extract_in_ast(root) {
-                    crate::doc::insert_tag(&mut doc.tags, &text);
+                    crate::doc::insert_term(bucket, &text);
                 }
             }
             let mut plugins = comrak::options::Plugins::default();
@@ -120,6 +128,7 @@ mod tests {
             PathBuf::from("post.md"),
             "# Hello\n\nThis is the body of the post. It has several words.".to_string(),
             Mapping::new(),
+            &[],
         );
         render_doc(&mut doc);
         assert!(!doc.summary.is_empty(), "expected a fallback summary");
@@ -132,7 +141,7 @@ mod tests {
     #[test]
     fn fallback_summary_truncates_long_bodies() {
         let long_body: String = "word ".repeat(100); // 500 chars
-        let mut doc = Doc::new(PathBuf::from("post.md"), long_body, Mapping::new());
+        let mut doc = Doc::new(PathBuf::from("post.md"), long_body, Mapping::new(), &[]);
         render_doc(&mut doc);
         assert!(doc.summary.chars().count() <= 250);
         assert!(doc.summary.ends_with('…'));
@@ -150,6 +159,7 @@ mod tests {
             "# Hello\n\nMuch longer body that would otherwise yield a different summary."
                 .to_string(),
             data,
+            &[],
         );
         render_doc(&mut doc);
         assert_eq!(doc.summary, "Hand-written blurb.");
@@ -161,6 +171,7 @@ mod tests {
             PathBuf::from("page.html"),
             "<p>raw html body</p>".to_string(),
             Mapping::new(),
+            &[],
         );
         render_doc(&mut doc);
         assert_eq!(doc.summary, "");
@@ -172,6 +183,7 @@ mod tests {
             PathBuf::from("page.yaml"),
             "<p>yaml-derived body</p>".to_string(),
             Mapping::new(),
+            &[],
         );
         render_doc(&mut doc);
         assert_eq!(doc.summary, "");

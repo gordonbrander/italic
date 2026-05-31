@@ -11,12 +11,14 @@
 //! - **Collections** — a named [`Query`] result, stored as an ordered
 //!   `Vec<PathBuf>` of `id_path`s. Defined from the `collections:` block in
 //!   `config.yaml` (see [`DocIndex::define_collection`]).
-//! - **Groups** — a keyed family of collections (`BTreeMap<key, Vec<PathBuf>>`).
-//!   The only group today is `tags` (one collection per tag slug); see
-//!   [`DocIndex::define_tags_group`].
+//! - **Taxonomies** — a named classification, stored as a keyed family of
+//!   collections (`BTreeMap<term, Vec<PathBuf>>`). Built-in `tags` plus any
+//!   declared under `taxonomies:` in `config.yaml`; see
+//!   [`DocIndex::define_taxonomies`].
 
 use crate::doc::{Doc, DocMeta};
 use crate::query::{self, Query};
+use crate::taxonomy::Taxonomy;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -27,7 +29,7 @@ pub struct DocIndex {
     /// sorted `id_path` order, which keeps cached listings and outputs stable.
     docs: BTreeMap<PathBuf, Doc>,
     collections: HashMap<String, Vec<PathBuf>>,
-    groups: HashMap<String, BTreeMap<String, Vec<PathBuf>>>,
+    taxonomies: HashMap<String, BTreeMap<String, Vec<PathBuf>>>,
 }
 
 impl DocIndex {
@@ -97,40 +99,50 @@ impl DocIndex {
             .filter_map(|id| self.docs.get(id))
     }
 
-    // --- groups ------------------------------------------------------------
+    // --- taxonomies --------------------------------------------------------
 
-    /// Build the `tags` group: one collection per tag slug, keyed by slug.
-    pub fn define_tags_group(&mut self) {
-        self.define_group("tags", |doc| doc.tags.keys().cloned().collect());
+    /// Build one taxonomy index per configured taxonomy: a `term slug -> docs`
+    /// map keyed by the doc's `terms[name]` memberships.
+    pub fn define_taxonomies(&mut self, taxonomies: &[Taxonomy]) {
+        for tax in taxonomies {
+            let key = tax.name.clone();
+            self.define_taxonomy(&tax.name, move |doc| {
+                doc.terms
+                    .get(&key)
+                    .map(|bucket| bucket.keys().cloned().collect())
+                    .unwrap_or_default()
+            });
+        }
     }
 
-    /// Generic group builder. `key_fn` returns the keys a doc belongs under; the
-    /// doc's `id_path` is pushed onto each key's collection. Each collection is
-    /// then ordered deterministically (date desc, `id_path` tiebreak) to match
-    /// the default query order rather than raw `id_path` order.
-    fn define_group<F>(&mut self, name: &str, key_fn: F)
+    /// Generic taxonomy builder. `term_fn` returns the term slugs a doc belongs
+    /// under; the doc's `id_path` is pushed onto each term's collection. Each
+    /// collection is then ordered deterministically (date desc, `id_path`
+    /// tiebreak) to match the default query order rather than raw `id_path`
+    /// order.
+    fn define_taxonomy<F>(&mut self, name: &str, term_fn: F)
     where
         F: Fn(&Doc) -> Vec<String>,
     {
-        let mut group: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+        let mut taxonomy: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
         for doc in self.docs.values() {
-            for key in key_fn(doc) {
-                group.entry(key).or_default().push(doc.id_path.clone());
+            for term in term_fn(doc) {
+                taxonomy.entry(term).or_default().push(doc.id_path.clone());
             }
         }
-        for ids in group.values_mut() {
+        for ids in taxonomy.values_mut() {
             ids.sort_by(|a, b| {
                 let da = &self.docs[a];
                 let db = &self.docs[b];
                 db.date.cmp(&da.date).then_with(|| a.cmp(b))
             });
         }
-        self.groups.insert(name.to_string(), group);
+        self.taxonomies.insert(name.to_string(), taxonomy);
     }
 
-    /// The named group's `key -> id_path`s map, or `None` if undefined.
-    pub fn get_group(&self, name: &str) -> Option<&BTreeMap<String, Vec<PathBuf>>> {
-        self.groups.get(name)
+    /// The named taxonomy's `term -> id_path`s map, or `None` if undefined.
+    pub fn get_taxonomy(&self, name: &str) -> Option<&BTreeMap<String, Vec<PathBuf>>> {
+        self.taxonomies.get(name)
     }
 }
 
@@ -214,31 +226,56 @@ mod tests {
         assert_eq!(ids, vec!["a.md", "b.md", "c.md"]);
     }
 
-    #[test]
-    fn define_tags_group_buckets_by_slug() {
-        let mut a = doc("a.md", "A", "2025-01-01");
-        a.tags.insert("rust".into(), "rust".into());
-        let mut b = doc("b.md", "B", "2025-03-01");
-        b.tags.insert("rust".into(), "rust".into());
-        b.tags.insert("go".into(), "go".into());
-        let index = {
-            let mut idx = index(vec![a, b]);
-            idx.define_tags_group();
-            idx
-        };
-        let group = index.get_group("tags").unwrap();
-        // `rust` has both, date desc → b (Mar) before a (Jan).
-        assert_eq!(
-            group.get("rust").unwrap(),
-            &vec![PathBuf::from("b.md"), PathBuf::from("a.md")]
-        );
-        assert_eq!(group.get("go").unwrap(), &vec![PathBuf::from("b.md")]);
+    fn with_tags(mut d: Doc, tags: &[&str]) -> Doc {
+        let bucket = d.terms.entry("tags".into()).or_default();
+        for t in tags {
+            bucket.insert((*t).to_string(), (*t).to_string());
+        }
+        d
     }
 
     #[test]
-    fn get_group_unknown_name_is_none() {
+    fn define_taxonomies_buckets_by_term_slug() {
+        let a = with_tags(doc("a.md", "A", "2025-01-01"), &["rust"]);
+        let b = with_tags(doc("b.md", "B", "2025-03-01"), &["rust", "go"]);
+        let index = {
+            let mut idx = index(vec![a, b]);
+            idx.define_taxonomies(&[Taxonomy::new("tags")]);
+            idx
+        };
+        let tags = index.get_taxonomy("tags").unwrap();
+        // `rust` has both, date desc → b (Mar) before a (Jan).
+        assert_eq!(
+            tags.get("rust").unwrap(),
+            &vec![PathBuf::from("b.md"), PathBuf::from("a.md")]
+        );
+        assert_eq!(tags.get("go").unwrap(), &vec![PathBuf::from("b.md")]);
+    }
+
+    #[test]
+    fn define_taxonomies_handles_multiple_taxonomies() {
+        let mut a = doc("a.md", "A", "2025-01-01");
+        a.terms
+            .entry("categories".into())
+            .or_default()
+            .insert("tech".into(), "Tech".into());
+        let index = {
+            let mut idx = index(vec![a]);
+            idx.define_taxonomies(&[Taxonomy::new("tags"), Taxonomy::new("categories")]);
+            idx
+        };
+        // tags taxonomy is defined but empty; categories has the doc.
+        assert!(index.get_taxonomy("tags").unwrap().is_empty());
+        assert_eq!(
+            index.get_taxonomy("categories").unwrap().get("tech").unwrap(),
+            &vec![PathBuf::from("a.md")]
+        );
+    }
+
+    #[test]
+    fn get_taxonomy_unknown_name_is_none() {
         let index = index(vec![doc("a.md", "A", "2025-01-01")]);
-        assert!(index.get_group("tags").is_none());
+        assert!(index.get_taxonomy("tags").is_none());
     }
 
     #[test]

@@ -4,14 +4,14 @@
 //! `backlinks`, `permalink`, `html`) to Tera's filter/function API.
 //!
 //! Spec §11: the markup env intentionally omits index-listing functions
-//! (`collection`, `group`, `backlinks`) because the index is not yet meaningful
-//! at body-render time. URL filters and text filters ship on both envs — they
-//! are 1:1 lookups or string composition, not listings.
+//! (`collection`, `taxonomy`, `backlinks`) because the index is not yet
+//! meaningful at body-render time. URL filters and text filters ship on both
+//! envs — they are 1:1 lookups or string composition, not listings.
 
 mod backlinks;
 mod collection;
-mod group;
 mod macros;
+mod taxonomy;
 mod text;
 mod url;
 
@@ -98,12 +98,12 @@ pub fn build_markup_env(config: &Config, docs: Arc<Vec<DocMeta>>) -> Result<Mark
 
 /// Tera environment used by the template phase. The full function set lands
 /// here. `index` is a frozen [`DocIndex`] snapshot taken at the start of the
-/// template phase (with collections and groups already defined) — every adapter
-/// shares the same `Arc`, so there is no per-function clone of the docs.
+/// template phase (with collections and taxonomies already defined) — every
+/// adapter shares the same `Arc`, so there is no per-function clone of the docs.
 pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera> {
     let mut env = load_templates(config)?;
     collection::register(&mut env, index.clone());
-    group::register(&mut env, index.clone());
+    taxonomy::register(&mut env, index.clone());
     backlinks::register(&mut env, index.clone());
     // URL filters resolve `id_path` -> URL through the shared `DocIndex` (O(1)),
     // not a cloned `DocMeta` vec.
@@ -168,12 +168,12 @@ mod tests {
     }
 
     #[test]
-    fn markup_env_does_not_register_group() {
+    fn markup_env_does_not_register_taxonomy() {
         let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
         let ctx = tera::Context::new();
         assert!(
             env.tera
-                .render_str("{{ group(name=\"tags\") }}", &ctx)
+                .render_str("{{ taxonomy(name=\"tags\") }}", &ctx)
                 .is_err()
         );
     }
@@ -212,11 +212,11 @@ mod tests {
     }
 
     #[test]
-    fn template_env_registers_group() {
+    fn template_env_registers_taxonomy() {
         let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
-        // Unknown group renders an empty map (no error).
+        // Unknown taxonomy renders an empty map (no error).
         let out = env
-            .render_str("{{ group(name=\"tags\") | length }}", &tera::Context::new())
+            .render_str("{{ taxonomy(name=\"tags\") | length }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "0");
     }
