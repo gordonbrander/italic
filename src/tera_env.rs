@@ -10,6 +10,7 @@
 
 mod backlinks;
 mod collection;
+mod doc;
 mod macros;
 mod taxonomy;
 mod text;
@@ -103,6 +104,7 @@ pub fn build_markup_env(config: &Config, docs: Arc<Vec<DocMeta>>) -> Result<Mark
 pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera> {
     let mut env = load_templates(config)?;
     collection::register(&mut env, index.clone());
+    doc::register(&mut env, index.clone());
     taxonomy::register(&mut env, index.clone());
     backlinks::register(&mut env, index.clone());
     // URL filters resolve `id_path` -> URL through the shared `DocIndex` (O(1)),
@@ -209,6 +211,49 @@ mod tests {
             .render_str("{{ collection(name=\"posts\") | length }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "0");
+    }
+
+    #[test]
+    fn template_env_registers_doc() {
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let out = env
+            .render_str(
+                "{% set d = doc(id_path=\"posts/hello.md\") %}{{ d.output_path }}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "posts/hello.html");
+    }
+
+    #[test]
+    fn doc_unknown_id_path_renders_null_not_error() {
+        // Unknown id_path yields `null`, so `{% if doc(...) %}` guards cleanly.
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let out = env
+            .render_str(
+                "{% set d = doc(id_path=\"missing.md\") %}{% if d %}yes{% else %}no{% endif %}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "no");
+    }
+
+    #[test]
+    fn doc_missing_id_path_argument_is_an_error() {
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        assert!(env.render_str("{{ doc() }}", &tera::Context::new()).is_err());
+    }
+
+    #[test]
+    fn markup_env_does_not_register_doc() {
+        // `doc` needs the full frozen index, which the markup env lacks (spec §11).
+        let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
+        let ctx = tera::Context::new();
+        assert!(
+            env.tera
+                .render_str("{{ doc(id_path=\"posts/hello.md\") }}", &ctx)
+                .is_err()
+        );
     }
 
     #[test]
