@@ -42,9 +42,9 @@ pub fn run() -> Result<()> {
     let (config, site) = Config::load(Path::new("config.yaml"))?;
     let site_data = SiteData::load(&config, site)?;
     let mut index = read::run(&config)?;
-    // Collections classify from frontmatter (pre-markup); defaults then fill each
-    // collection's members before their bodies render.
+    // Collections classify from frontmatter (pre-markup).
     classify::collections(&config, &mut index);
+    // Defaults filled in for collection members before bodies render
     defaults::run(&config, &mut index)?;
     markup::run(&config, &site_data, &mut index)?;
     // Taxonomies classify after markup (hashtags mutate terms). The index is now
