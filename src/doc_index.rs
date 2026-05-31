@@ -166,13 +166,14 @@ mod tests {
     }
 
     fn doc(id_path: &str, title: &str, date: &str) -> Doc {
-        let mut d = Doc::default();
-        d.id_path = PathBuf::from(id_path);
-        d.output_path = PathBuf::from(id_path).with_extension("html");
-        d.title = title.to_string();
-        d.date = at(date);
-        d.updated = at(date);
-        d
+        Doc {
+            id_path: PathBuf::from(id_path),
+            output_path: PathBuf::from(id_path).with_extension("html"),
+            title: title.to_string(),
+            date: at(date),
+            updated: at(date),
+            ..Default::default()
+        }
     }
 
     fn index(docs: Vec<Doc>) -> DocIndex {

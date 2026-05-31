@@ -68,13 +68,14 @@ mod tests {
     }
 
     fn doc(id_path: &str, title: &str, date: &str, links: &[&str]) -> Doc {
-        let mut d = Doc::default();
-        d.id_path = PathBuf::from(id_path);
-        d.title = title.to_string();
-        d.date = at(date);
-        d.updated = at(date);
-        d.links = links.iter().map(PathBuf::from).collect();
-        d
+        Doc {
+            id_path: PathBuf::from(id_path),
+            title: title.to_string(),
+            date: at(date),
+            updated: at(date),
+            links: links.iter().map(PathBuf::from).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]

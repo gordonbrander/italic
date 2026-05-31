@@ -95,6 +95,23 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
     Ok(())
 }
 
+pub fn run(config: &Config, site_data: &SiteData, index: &mut DocIndex) -> Result<()> {
+    // Frozen `DocMeta` view of the index for wikilink resolution and the
+    // URL filters. The projection drops `content`/`links`/`data`/
+    // `template`, so the type system enforces that the markup phase can't
+    // read another doc's body or stale markup-phase state.
+    let snapshot: Arc<Vec<DocMeta>> = Arc::new(index.to_doc_metas());
+    let env = build_markup_env(config, snapshot.clone())?;
+    // Each doc renders independently — it mutates only its own fields, while
+    // `env` (Tera, comrak options, syntect, stem index) and `site_data` are
+    // read-only. `render_str` needs `&mut Tera`, so each Rayon worker gets its
+    // own clone of the env via `try_for_each_init` (cloned once per worker,
+    // not per doc).
+    index
+        .par_docs_mut()
+        .try_for_each_init(|| env.clone(), |env, doc| render(env, site_data, doc))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,21 +204,4 @@ mod tests {
         render_doc(&mut doc);
         assert_eq!(doc.summary, "");
     }
-}
-
-pub fn run(config: &Config, site_data: &SiteData, index: &mut DocIndex) -> Result<()> {
-    // Frozen `DocMeta` view of the index for wikilink resolution and the
-    // URL filters. The projection drops `content`/`links`/`data`/
-    // `template`, so the type system enforces that the markup phase can't
-    // read another doc's body or stale markup-phase state.
-    let snapshot: Arc<Vec<DocMeta>> = Arc::new(index.to_doc_metas());
-    let env = build_markup_env(config, snapshot.clone())?;
-    // Each doc renders independently — it mutates only its own fields, while
-    // `env` (Tera, comrak options, syntect, stem index) and `site_data` are
-    // read-only. `render_str` needs `&mut Tera`, so each Rayon worker gets its
-    // own clone of the env via `try_for_each_init` (cloned once per worker,
-    // not per doc).
-    index
-        .par_docs_mut()
-        .try_for_each_init(|| env.clone(), |env, doc| render(env, site_data, doc))
 }

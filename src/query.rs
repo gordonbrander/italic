@@ -149,10 +149,10 @@ pub fn evaluate<'a>(q: &Query, docs: impl IntoIterator<Item = &'a Doc>) -> Vec<&
     let mut results: Vec<&Doc> = docs
         .into_iter()
         .filter(|d| {
-            if let Some(m) = &matcher {
-                if !m.is_match(&d.id_path) {
-                    return false;
-                }
+            if let Some(m) = &matcher
+                && !m.is_match(&d.id_path)
+            {
+                return false;
             }
             if omit.contains(d.id_path.as_path()) {
                 return false;
@@ -200,12 +200,13 @@ mod tests {
     }
 
     fn doc(id_path: &str, title: &str, date: &str) -> Doc {
-        let mut d = Doc::default();
-        d.id_path = PathBuf::from(id_path);
-        d.title = title.to_string();
-        d.date = at(date);
-        d.updated = at(date);
-        d
+        Doc {
+            id_path: PathBuf::from(id_path),
+            title: title.to_string(),
+            date: at(date),
+            updated: at(date),
+            ..Default::default()
+        }
     }
 
     fn yaml_mapping(s: &str) -> Mapping {

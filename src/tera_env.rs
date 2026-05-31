@@ -235,10 +235,11 @@ mod tests {
     }
 
     fn one_doc() -> Doc {
-        let mut d = Doc::default();
-        d.id_path = PathBuf::from("posts/hello.md");
-        d.output_path = PathBuf::from("posts/hello.html");
-        d
+        Doc {
+            id_path: PathBuf::from("posts/hello.md"),
+            output_path: PathBuf::from("posts/hello.html"),
+            ..Default::default()
+        }
     }
 
     fn one_doc_snapshot() -> Arc<DocIndex> {

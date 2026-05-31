@@ -70,10 +70,11 @@ mod tests {
     }
 
     fn doc(id_path: &str) -> Doc {
-        let mut d = Doc::default();
-        d.id_path = PathBuf::from(id_path);
-        d.output_path = PathBuf::from(id_path).with_extension("html");
-        d
+        Doc {
+            id_path: PathBuf::from(id_path),
+            output_path: PathBuf::from(id_path).with_extension("html"),
+            ..Default::default()
+        }
     }
 
     fn frontmatter(s: &str) -> Mapping {
