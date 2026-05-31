@@ -2,11 +2,9 @@
 
 Mug is a fast, reliable site-generator, written in Rust. Its goals are:
 
-- Blog-aware: date-based posts and archives.
-- Wiki-aware: Supports Obsidian Markdown, wikilinks, and backlinks. Use it to publish your digital garden.
-- Zero config: Works out-of-the-box with sensible defaults.
-- Reliable: no framework churn, no dependencies, does one thing well.
-- Fast: it's Rust!
+- Blog, wiki, and [digital garden](https://maggieappleton.com/garden-history)-aware: supports date-based posts, wikilinks, backlinks, hashtags, and more. Aims to be compatible with [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your digital garden.
+- Reliable: Works out-of-the-box with zero config. No framework churn, no dependencies. Does one thing well.
+- Fast: it's Rust, so...
 
 ## Install
 
