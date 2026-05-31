@@ -1,6 +1,5 @@
 use crate::frontmatter;
 use crate::permalink;
-use crate::taxonomy::Taxonomy;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -128,7 +127,7 @@ impl Doc {
     /// any pre-seeded value (the filesystem dates set by [`Doc::load`], or the
     /// result of an earlier uplift before [`Doc::apply_defaults`]) is preserved
     /// otherwise.
-    pub fn uplift_frontmatter(&mut self, taxonomies: &[Taxonomy]) {
+    pub fn uplift_frontmatter(&mut self, taxonomies: &[String]) {
         self.title = uplift_string(&self.data, "title").unwrap_or_default();
         self.summary = uplift_string(&self.data, "summary").unwrap_or_default();
         self.template = uplift_string(&self.data, "template");
@@ -173,7 +172,7 @@ impl Doc {
     /// from filesystem metadata, then uplift frontmatter — which overrides those
     /// dates when the frontmatter supplies parseable values. So frontmatter wins
     /// and the filesystem fills in (`date`: created → modified; `updated`: modified).
-    pub fn load(content_dir: &Path, id_path: &Path, taxonomies: &[Taxonomy]) -> Result<Doc> {
+    pub fn load(content_dir: &Path, id_path: &Path, taxonomies: &[String]) -> Result<Doc> {
         let fs_path = content_dir.join(id_path);
         let source = fs::read_to_string(&fs_path)
             .with_context(|| format!("could not read {}", fs_path.display()))?;
@@ -234,12 +233,12 @@ fn uplift_string(data: &Mapping, key: &str) -> Option<String> {
 /// templates and the markup-phase hashtag pass can find `terms["tags"]`.
 fn uplift_terms(
     data: &Mapping,
-    taxonomies: &[Taxonomy],
+    taxonomies: &[String],
 ) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut terms: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
-    for tax in taxonomies {
-        let bucket = terms.entry(tax.name.clone()).or_default();
-        if let Some(Value::Sequence(seq)) = data.get(tax.field.as_str()) {
+    for name in taxonomies {
+        let bucket = terms.entry(name.clone()).or_default();
+        if let Some(Value::Sequence(seq)) = data.get(name.as_str()) {
             for v in seq {
                 if let Some(text) = v.as_str() {
                     insert_term(bucket, text);
@@ -289,12 +288,12 @@ mod tests {
     }
 
     /// The default taxonomy set used in most tests: just built-in `tags`.
-    fn tax() -> Vec<Taxonomy> {
-        vec![Taxonomy::new("tags")]
+    fn tax() -> Vec<String> {
+        vec!["tags".to_string()]
     }
 
     /// Construct a Doc and uplift its metadata — the read-phase pairing.
-    fn uplifted(id_path: &str, content: &str, data: Mapping, taxonomies: &[Taxonomy]) -> Doc {
+    fn uplifted(id_path: &str, content: &str, data: Mapping, taxonomies: &[String]) -> Doc {
         let mut d = Doc::new(PathBuf::from(id_path), content.to_string(), data);
         d.uplift_frontmatter(taxonomies);
         d
@@ -359,7 +358,7 @@ mod tests {
             "categories",
             Value::Sequence(vec![Value::String("Tech".into())]),
         )]);
-        let taxonomies = vec![Taxonomy::new("tags"), Taxonomy::new("categories")];
+        let taxonomies = vec!["tags".to_string(), "categories".to_string()];
         let d = uplifted("p.md", "", data, &taxonomies);
         assert_eq!(d.terms["categories"]["tech"], "Tech");
         // `tags` bucket exists but is empty.
@@ -533,7 +532,7 @@ mod tests {
 
     #[test]
     fn apply_defaults_picks_up_template_and_taxonomy_field() {
-        let taxonomies = vec![Taxonomy::new("tags"), Taxonomy::new("categories")];
+        let taxonomies = vec!["tags".to_string(), "categories".to_string()];
         let mut d = uplifted("posts/hello.md", "", Mapping::new(), &taxonomies);
         d.apply_defaults(&mapping("template: post.html\ncategories: [Tech]\n"));
         d.uplift_frontmatter(&taxonomies);

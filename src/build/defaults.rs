@@ -54,7 +54,6 @@ mod tests {
     use super::*;
     use crate::doc::Doc;
     use crate::query::Query;
-    use crate::taxonomy::Taxonomy;
     use globset::GlobBuilder;
     use std::path::Path;
 
@@ -85,7 +84,7 @@ mod tests {
     fn build(
         collections: Vec<(&str, Query)>,
         defaults: Vec<(&str, &str)>,
-        taxonomies: Vec<Taxonomy>,
+        taxonomies: Vec<String>,
         docs: Vec<Doc>,
     ) -> DocIndex {
         let config = Config {
@@ -121,7 +120,7 @@ mod tests {
                 ("all", "template: base.html"),
                 ("special", "template: special.html"),
             ],
-            vec![Taxonomy::new("tags")],
+            vec!["tags".to_string()],
             vec![doc("a.md"), doc("b.md")],
         );
         assert_eq!(
@@ -142,7 +141,7 @@ mod tests {
         let index = build(
             vec![("posts", glob("posts/*.md"))],
             vec![("posts", "tags: [Rust]")],
-            vec![Taxonomy::new("tags")],
+            vec!["tags".to_string()],
             vec![doc("posts/p.md")],
         );
         let tags = index.get_taxonomy("tags").unwrap();
@@ -160,7 +159,7 @@ mod tests {
         let index = build(
             vec![("posts", glob("posts/*.md"))],
             vec![("posts", "template: default.html")],
-            vec![Taxonomy::new("tags")],
+            vec!["tags".to_string()],
             vec![d],
         );
         assert_eq!(

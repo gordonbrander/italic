@@ -1,5 +1,5 @@
 use crate::query::Query;
-use crate::taxonomy::{self, Taxonomy};
+use crate::taxonomy;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
@@ -43,14 +43,14 @@ pub struct Config {
     /// `config.yaml` order; collection lookup is by name regardless.
     #[serde(skip)]
     pub collections: Vec<(String, Query)>,
-    /// Declared taxonomies (named classifications), parsed from the `taxonomies:`
-    /// key in declaration order. There are no built-in defaults — a site (or the
+    /// Declared taxonomy names, parsed from the `taxonomies:` array in
+    /// declaration order. There are no built-in defaults — a site (or the
     /// scaffold) declares `tags` like any other taxonomy. The read phase uses
-    /// each taxonomy's `field` to uplift a doc's term memberships into
+    /// each name as a frontmatter field to uplift a doc's term memberships into
     /// `Doc.terms`, and the classify phase inverts those into
     /// `taxonomy → term → docs`.
     #[serde(skip)]
-    pub taxonomies: Vec<Taxonomy>,
+    pub taxonomies: Vec<String>,
 }
 
 impl Default for Config {
@@ -102,7 +102,7 @@ impl Config {
                     _ => None,
                 };
                 let taxonomies = match m.remove(Value::String("taxonomies".into())) {
-                    Some(Value::Mapping(t)) => Some(t),
+                    Some(Value::Sequence(t)) => Some(t),
                     _ => None,
                 };
                 (site, defaults, collections, taxonomies)
@@ -368,21 +368,9 @@ mod tests {
     #[test]
     fn taxonomies_block_parsed_in_declaration_order() {
         let dir = tempdir();
-        let path = write_config(&dir, "taxonomies:\n  tags:\n  categories:\n  series:\n    field: serie\n");
+        let path = write_config(&dir, "taxonomies:\n  - tags\n  - categories\n  - series\n");
         let (config, _) = Config::load(&path).unwrap();
-        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, vec!["tags", "categories", "series"]);
-        assert_eq!(config.taxonomies[2].field, "serie");
-        cleanup(&dir);
-    }
-
-    #[test]
-    fn taxonomies_tags_false_opts_out() {
-        let dir = tempdir();
-        let path = write_config(&dir, "taxonomies:\n  tags: false\n  categories:\n");
-        let (config, _) = Config::load(&path).unwrap();
-        let names: Vec<&str> = config.taxonomies.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, vec!["categories"]);
+        assert_eq!(config.taxonomies, vec!["tags", "categories", "series"]);
         cleanup(&dir);
     }
 

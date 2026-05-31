@@ -18,7 +18,6 @@
 
 use crate::doc::{Doc, DocMeta};
 use crate::query::{self, Query};
-use crate::taxonomy::Taxonomy;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -109,10 +108,10 @@ impl DocIndex {
 
     /// Build one taxonomy index per configured taxonomy: a `term slug -> docs`
     /// map keyed by the doc's `terms[name]` memberships.
-    pub fn define_taxonomies(&mut self, taxonomies: &[Taxonomy]) {
-        for tax in taxonomies {
-            let key = tax.name.clone();
-            self.define_taxonomy(&tax.name, move |doc| {
+    pub fn define_taxonomies(&mut self, taxonomies: &[String]) {
+        for name in taxonomies {
+            let key = name.clone();
+            self.define_taxonomy(name, move |doc| {
                 doc.terms
                     .get(&key)
                     .map(|bucket| bucket.keys().cloned().collect())
@@ -246,7 +245,7 @@ mod tests {
         let b = with_tags(doc("b.md", "B", "2025-03-01"), &["rust", "go"]);
         let index = {
             let mut idx = index(vec![a, b]);
-            idx.define_taxonomies(&[Taxonomy::new("tags")]);
+            idx.define_taxonomies(&["tags".to_string()]);
             idx
         };
         let tags = index.get_taxonomy("tags").unwrap();
@@ -267,7 +266,7 @@ mod tests {
             .insert("tech".into(), "Tech".into());
         let index = {
             let mut idx = index(vec![a]);
-            idx.define_taxonomies(&[Taxonomy::new("tags"), Taxonomy::new("categories")]);
+            idx.define_taxonomies(&["tags".to_string(), "categories".to_string()]);
             idx
         };
         // tags taxonomy is defined but empty; categories has the doc.

@@ -34,4 +34,4 @@ defaults:
 # `{% for term, docs in taxonomy(name="tags") %}`, and generate per-term archive
 # pages with a `kind: taxonomy` file in `archives/` (see archives/tags.html).
 taxonomies:
-  tags:
+  - tags
