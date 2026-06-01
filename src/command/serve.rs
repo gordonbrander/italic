@@ -36,7 +36,9 @@ const LIVERELOAD_TAG: &str = "<script src=\"/__livereload.js\"></script>";
 type ServeBody = UnsyncBoxBody<Bytes, io::Error>;
 
 pub fn run(host: IpAddr, port: u16) -> Result<()> {
-    crate::build::run().context("initial build")?;
+    // serve is the local preview, so drafts are included (here and in the
+    // watch-driven rebuilds below).
+    crate::build::run(true).context("initial build")?;
 
     let (config, _) = Config::load(Path::new("config.yaml"))?;
     let output_dir = config.output_dir.clone();

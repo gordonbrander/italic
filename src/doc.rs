@@ -15,6 +15,11 @@ pub struct Doc {
     pub template: Option<String>,
     pub title: String,
     pub summary: String,
+    /// True when frontmatter sets `draft: true`. Drafts are dropped at the read
+    /// phase unless drafts are being included (local `serve`/`watch`, or
+    /// `mug build --drafts`), so a kept doc's `draft` reflects its own
+    /// frontmatter only. Serialized for templates as `page.draft`.
+    pub draft: bool,
     pub content: String,
     /// Term memberships, keyed by taxonomy name → (slug → display text). Built
     /// from each taxonomy's frontmatter field (e.g. `tags:`, `categories:`) and,
@@ -93,6 +98,7 @@ impl Default for Doc {
             template: None,
             title: String::new(),
             summary: String::new(),
+            draft: false,
             content: String::new(),
             terms: BTreeMap::new(),
             date: DateTime::<Utc>::UNIX_EPOCH,
@@ -121,8 +127,8 @@ impl Doc {
     }
 
     /// Derive the metadata fields from `self.data` (spec §5): `title`, `summary`,
-    /// `template`, `terms` (one bucket per taxonomy, read from its frontmatter
-    /// field), and `output_path` (expanding any `permalink`). `date`/`updated`
+    /// `draft`, `template`, `terms` (one bucket per taxonomy, read from its
+    /// frontmatter field), and `output_path` (expanding any `permalink`). `date`/`updated`
     /// are overwritten **only** when frontmatter supplies a parseable value, so
     /// any pre-seeded value (the filesystem dates set by [`Doc::load`], or the
     /// result of an earlier uplift before [`Doc::apply_defaults`]) is preserved
@@ -130,6 +136,7 @@ impl Doc {
     pub fn uplift_frontmatter(&mut self, taxonomies: &[String]) {
         self.title = uplift_string(&self.data, "title").unwrap_or_default();
         self.summary = uplift_string(&self.data, "summary").unwrap_or_default();
+        self.draft = self.data.get("draft").and_then(Value::as_bool).unwrap_or(false);
         self.template = uplift_string(&self.data, "template");
         self.terms = uplift_terms(&self.data, taxonomies);
         if let Some(date) = parse_date(self.data.get("date")) {
@@ -308,6 +315,7 @@ mod tests {
         assert_eq!(d.summary, "");
         assert!(d.terms.is_empty());
         assert!(d.template.is_none());
+        assert!(!d.draft);
     }
 
     #[test]
@@ -332,6 +340,31 @@ mod tests {
         let d = uplifted("post.md", "", data, &tax());
         assert_eq!(d.title, "Hi");
         assert_eq!(d.template.as_deref(), Some("base.html"));
+    }
+
+    #[test]
+    fn uplift_frontmatter_draft_true() {
+        let data = map_from(&[("draft", Value::Bool(true))]);
+        let d = uplifted("p.md", "", data, &tax());
+        assert!(d.draft);
+    }
+
+    #[test]
+    fn uplift_frontmatter_draft_false_absent_or_non_bool() {
+        // Explicit false, missing, and a non-bool value all uplift to `false`.
+        let explicit = uplifted("p.md", "", map_from(&[("draft", Value::Bool(false))]), &tax());
+        assert!(!explicit.draft);
+
+        let missing = uplifted("p.md", "", Mapping::new(), &tax());
+        assert!(!missing.draft);
+
+        let non_bool = uplifted(
+            "p.md",
+            "",
+            map_from(&[("draft", Value::String("yes".into()))]),
+            &tax(),
+        );
+        assert!(!non_bool.draft);
     }
 
     #[test]

@@ -3,6 +3,9 @@
 //! stages; the rest are sequential:
 //!
 //! 1. [`read`] — scan `content/` into a [`DocIndex`](crate::doc_index::DocIndex).
+//!    Docs with `draft: true` frontmatter are dropped here unless `include_drafts`
+//!    (local `serve`/`watch`, or `mug build --drafts`), so they stay out of every
+//!    later stage.
 //! 2. [`classify::collections`] — evaluate collection membership (frontmatter
 //!    only; pre-markup so defaults can fill members).
 //! 3. [`defaults`] — fill each collection's members with its default frontmatter.
@@ -38,10 +41,10 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 
-pub fn run() -> Result<()> {
+pub fn run(include_drafts: bool) -> Result<()> {
     let (config, site) = Config::load(Path::new("config.yaml"))?;
     let site_data = SiteData::load(&config, site)?;
-    let mut index = read::run(&config)?;
+    let mut index = read::run(&config, include_drafts)?;
     // Collections classify from frontmatter (pre-markup).
     classify::collections(&config, &mut index);
     // Defaults filled in for collection members before bodies render

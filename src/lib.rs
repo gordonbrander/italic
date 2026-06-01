@@ -32,6 +32,6 @@ pub fn clean() -> Result<()> {
     command::clean::run()
 }
 
-pub fn build() -> Result<()> {
-    build::run()
+pub fn build(include_drafts: bool) -> Result<()> {
+    build::run(include_drafts)
 }

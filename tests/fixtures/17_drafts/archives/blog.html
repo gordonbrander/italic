@@ -1,0 +1,7 @@
+---
+kind: collection
+collection: posts
+permalink: /blog/
+per_page: 10
+---
+page {{ pagination.current }}/{{ pagination.total }}|{% for item in pagination.items %}{{ item.title }} {% endfor %}

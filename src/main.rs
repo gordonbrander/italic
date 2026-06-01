@@ -13,7 +13,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Build the site
-    Build,
+    Build {
+        /// Include draft documents (`draft: true`) in the output
+        #[arg(long)]
+        drafts: bool,
+    },
     /// Watch source dirs and rebuild on change
     Watch,
     /// Serve the built site locally with live reload
@@ -37,7 +41,7 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Build => mug::build(),
+        Command::Build { drafts } => mug::build(drafts),
         Command::Watch => mug::watch(),
         Command::Serve { port, host } => mug::serve(host, port),
         Command::New { path } => mug::new(&path),
