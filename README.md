@@ -2,24 +2,25 @@
 
 Mug is a site-generator written in Rust. Its goals are:
 
-- Practical: Works out-of-the-box with zero config. No framework churn, no third-party plugins. One binary with everything you need.
-- Flexible: publish a website, blog, wiki, or [digital garden](https://maggieappleton.com/garden-history).
+- Practical: Works out-of-the-box with zero config. One binary with everything you need.
+- Flexible: supports blogs, websites, and [digital gardens](https://maggieappleton.com/garden-history).
 - Fast: Embarrasingly parallel rendering with Rust.
 
 ## Features
 
 Mug has everything you need for publishing blogs, websites, and [Digital gardens](https://maggieappleton.com/garden-history)...
 
-- Blogs: create any number of blogs or newsfeeds on the same site.
+- Blogs: Create any number of blogs or newsfeeds on the same site.
 - Custom collections: A poweful query system lets you collect pages into any grouping you want.
-- Multiple taxonomies: Organize your content along multiple axes. Want to categorize by tag? Series? Publication? No problem.
-- Archives: generate custom paginated archives for taxonomies and collections.
-- Markdown extensions: Aims to be maximally compatible with GitHub-flavored Markdown and [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your vault.
-- Wikilinks: resolved using the same flexible algorithm as Obsidian.
-- Backlinks: see what links back to a page.
-- Drafts: mark a page `draft: true` to keep it out of your published site while still previewing it locally.
+- Multiple taxonomies: Organize your content along multiple axes. Want to categorize by tag? Series? Publication? Phase of the moon? No problem.
+- Archives: Generate custom paginated archives for taxonomies and collections.
+- Fancy Markdown: Aims to be maximally compatible with GitHub-flavored Markdown and [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your vault.
+- Wikilinks: smart wikilinks that resolve using the same algorithm as Obsidian.
+- Backlinks: list pages that link to a page.
 - Hashtags: auto-appended to tags and stripped from output.
 - Shortcodes: easily create custom shortcodes for video embeds, responsive images, and more.
+- Content templates: Use Tera templates in Markdown.
+- Drafts: mark a page `draft: true` to keep it out of your published site while still previewing it locally.
 - RSS feeds
 - Sitemaps
 
