@@ -67,7 +67,7 @@ fn run_build(fixture: &str) {
 
     let prev_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(&temp_root).unwrap();
-    let build_result = mug::build();
+    let build_result = mug::build(false);
     std::env::set_current_dir(&prev_cwd).unwrap();
 
     build_result.unwrap();
@@ -216,6 +216,11 @@ fn taxonomies() {
 }
 
 #[test]
+fn drafts() {
+    run_build("17_drafts");
+}
+
+#[test]
 fn scaffold() {
     // The 12_scaffold fixture has no input files — just an `expected/` dir.
     // The test exercises the real scaffold code path: scaffold into a temp dir
@@ -237,7 +242,7 @@ fn scaffold() {
 
     let prev_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(&demo).unwrap();
-    let build_result = mug::build();
+    let build_result = mug::build(false);
     std::env::set_current_dir(&prev_cwd).unwrap();
     build_result.unwrap();
 

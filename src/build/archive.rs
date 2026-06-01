@@ -293,6 +293,7 @@ fn paginate(
             template: archive.template.clone(),
             title: String::new(),
             summary: String::new(),
+            draft: false,
             content: archive.body.clone(),
             terms: std::collections::BTreeMap::new(),
             date: epoch(),

@@ -8,11 +8,20 @@ Mug is a site-generator written in Rust. Its goals are:
 
 ## Features
 
-Mug has everything you need for...
+Mug has everything you need for publishing blogs, websites, and [Digital gardens](https://maggieappleton.com/garden-history)...
 
-- Blogs: publish date-based posts with tags, paginated archives, and rss feeds...
-- [Digital gardens](https://maggieappleton.com/garden-history): Publish your second brain. Aims to be compatible with [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your vault: wikilinks, backlinks, hashtags...
-- Websites: flexible folder layout, custom collections, and multiple taxonomies offer powerful tools for organizing.
+- Blogs: create any number of blogs or newsfeeds on the same site.
+- Custom collections: A poweful query system lets you collect pages into any grouping you want.
+- Multiple taxonomies: Organize your content along multiple axes. Want to categorize by tag? Series? Publication? No problem.
+- Archives: generate custom paginated archives for taxonomies and collections.
+- Markdown extensions: Aims to be maximally compatible with GitHub-flavored Markdown and [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your vault.
+- Wikilinks: resolved using the same flexible algorithm as Obsidian.
+- Backlinks: see what links back to a page.
+- Drafts: mark a page `draft: true` to keep it out of your published site while still previewing it locally.
+- Hashtags: auto-appended to tags and stripped from output.
+- Shortcodes: easily create custom shortcodes for video embeds, responsive images, and more.
+- RSS feeds
+- Sitemaps
 
 ## Install
 
@@ -79,6 +88,7 @@ if absent:
 | Key         | Default                                  |
 |-------------|------------------------------------------|
 | `title`     | `""`                                     |
+| `draft`     | `false` (see [drafts](#drafts))          |
 | `template`  | `None` (body is the final output)        |
 | `tags`      | `[]` (and other taxonomy fields—see [taxonomies](#taxonomies)) |
 | `date`      | file created time, then file modified time |
@@ -88,6 +98,24 @@ if absent:
 Any other key is preserved verbatim on `page.data` and reachable from templates
 as `{{ page.data.your_key }}`. A doc's term memberships are available as
 `page.terms` (e.g. `page.terms.tags`), a map of taxonomy → slug → display text.
+
+### Drafts
+
+Mark a page as a draft by setting `draft: true` in its frontmatter:
+
+```markdown
+---
+title: Work in progress
+draft: true
+---
+Not ready to publish yet.
+```
+
+Drafts are dropped at the start of the build, so they never appear in the
+output — and never show up in collections, taxonomies, or backlinks either, as
+if the file weren't there. They are visible while you work locally: `mug serve`
+and `mug watch` always include drafts. To preview drafts in a one-off build
+(e.g. a staging deploy), pass `mug build --drafts`.
 
 ### Wikilinks
 
@@ -460,12 +488,13 @@ The scaffold ships a starter RSS archive and a sitemap page that work out of the
 
 | Command                | Purpose                                          |
 |------------------------|--------------------------------------------------|
-| `mug build`          | Run the full pipeline once into `output_dir`.    |
-| `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). |
+| `mug build`          | Run the full pipeline once into `output_dir`. Excludes drafts; pass `--drafts` to include them. |
+| `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). Includes drafts. |
 | `mug new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
 | `mug clean`          | Remove `output_dir` (default `public`).          |
 
-All behavioral configuration lives in files, not flags.
+Behavioral configuration lives in files, not flags — the one exception is
+`mug build --drafts`, which force-includes [drafts](#drafts) in a build.
 
 ## Scope and limits (v1)
 

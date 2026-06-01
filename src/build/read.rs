@@ -4,7 +4,11 @@ use crate::doc_index::DocIndex;
 use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
-pub fn run(config: &Config) -> Result<DocIndex> {
+/// Scan `content_dir` into a [`DocIndex`]. When `include_drafts` is false (the
+/// production `mug build` default), docs whose frontmatter sets `draft: true`
+/// are skipped entirely, so they never reach collections, taxonomies, or
+/// backlinks. Local `serve`/`watch` and `mug build --drafts` pass `true`.
+pub fn run(config: &Config, include_drafts: bool) -> Result<DocIndex> {
     let mut index = DocIndex::new();
     if !config.content_dir.exists() {
         return Ok(index);
@@ -28,6 +32,9 @@ pub fn run(config: &Config) -> Result<DocIndex> {
             .with_context(|| format!("could not strip prefix from {}", path.display()))?
             .to_path_buf();
         let doc = Doc::load(&config.content_dir, &id_path, &config.taxonomies)?;
+        if !include_drafts && doc.draft {
+            continue;
+        }
         index.insert(doc);
     }
     Ok(index)

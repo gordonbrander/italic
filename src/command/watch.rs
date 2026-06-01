@@ -71,7 +71,9 @@ where
 
 fn rebuild() -> Result<()> {
     let start = Instant::now();
-    let result = crate::build::run();
+    // watch (and serve, which drives this loop) is the local preview, so drafts
+    // are always included.
+    let result = crate::build::run(true);
     match &result {
         Ok(()) => eprintln!("rebuilt in {:?}", start.elapsed()),
         Err(e) => eprintln!("build failed: {e:#}"),
