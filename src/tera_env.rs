@@ -89,12 +89,8 @@ pub fn build_markup_env(config: &Config, docs: Arc<Vec<DocMeta>>) -> Result<Mark
         config.base_path.clone(),
     );
     text::register(&mut tera);
-<<<<<<< Updated upstream
     entries::register(&mut tera);
-=======
-    dictsort::register(&mut tera);
     markdown::register(&mut tera, options.clone(), SYNTECT.clone());
->>>>>>> Stashed changes
     let macro_preamble = macros::discover_imports(config);
     Ok(MarkupEnv {
         tera,
@@ -125,12 +121,8 @@ pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera>
         config.base_path.clone(),
     );
     text::register(&mut env);
-<<<<<<< Updated upstream
     entries::register(&mut env);
-=======
-    dictsort::register(&mut env);
     markdown::register(&mut env, markup_options(), SYNTECT.clone());
->>>>>>> Stashed changes
     Ok(env)
 }
 
