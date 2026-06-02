@@ -83,7 +83,10 @@ mod tests {
 
     #[test]
     fn escapes_all_five() {
-        assert_eq!(escape("a & b < c > d \" e ' f"), "a &amp; b &lt; c &gt; d &quot; e &#39; f");
+        assert_eq!(
+            escape("a & b < c > d \" e ' f"),
+            "a &amp; b &lt; c &gt; d &quot; e &#39; f"
+        );
     }
 
     #[test]

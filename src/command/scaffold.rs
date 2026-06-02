@@ -6,52 +6,58 @@ use std::path::Path;
 /// root and embedded at compile time. Add a row here to ship a new file.
 const SCAFFOLD_FILES: &[(&str, &str)] = &[
     ("config.yaml", include_str!("../../scaffold/config.yaml")),
-    ("content/index.md", include_str!("../../scaffold/content/index.md")),
+    // Content: a small interlinked digital garden. Each note links to others
+    // with [[wikilinks]] so the obsidian theme's backlinks have something to show.
     (
-        "content/posts/hello.md",
-        include_str!("../../scaffold/content/posts/hello.md"),
+        "content/index.md",
+        include_str!("../../scaffold/content/index.md"),
     ),
     (
-        "templates/base.html",
-        include_str!("../../scaffold/templates/base.html"),
+        "content/digital-garden.md",
+        include_str!("../../scaffold/content/digital-garden.md"),
     ),
     (
-        "templates/home.html",
-        include_str!("../../scaffold/templates/home.html"),
+        "content/wikilinks.md",
+        include_str!("../../scaffold/content/wikilinks.md"),
     ),
     (
-        "templates/post.html",
-        include_str!("../../scaffold/templates/post.html"),
-    ),
-    (
-        "templates/archive.html",
-        include_str!("../../scaffold/templates/archive.html"),
-    ),
-    (
-        "templates/tag.html",
-        include_str!("../../scaffold/templates/tag.html"),
-    ),
-    (
-        "templates/sitemap.xml",
-        include_str!("../../scaffold/templates/sitemap.xml"),
+        "content/backlinks.md",
+        include_str!("../../scaffold/content/backlinks.md"),
     ),
     (
         "content/sitemap.html",
         include_str!("../../scaffold/content/sitemap.html"),
     ),
     (
-        "archives/rss.xml",
-        include_str!("../../scaffold/archives/rss.xml"),
+        "static/.gitkeep",
+        include_str!("../../scaffold/static/.gitkeep"),
+    ),
+    // The bundled "obsidian" theme: templates, styles, and config defaults for a
+    // wiki / digital garden. Activated by `theme: themes/obsidian` in config.yaml.
+    (
+        "themes/obsidian/config.yaml",
+        include_str!("../../scaffold/themes/obsidian/config.yaml"),
     ),
     (
-        "archives/posts.html",
-        include_str!("../../scaffold/archives/posts.html"),
+        "themes/obsidian/templates/base.html",
+        include_str!("../../scaffold/themes/obsidian/templates/base.html"),
     ),
     (
-        "archives/tags.html",
-        include_str!("../../scaffold/archives/tags.html"),
+        "themes/obsidian/templates/note.html",
+        include_str!("../../scaffold/themes/obsidian/templates/note.html"),
     ),
-    ("static/.gitkeep", include_str!("../../scaffold/static/.gitkeep")),
+    (
+        "themes/obsidian/templates/index.html",
+        include_str!("../../scaffold/themes/obsidian/templates/index.html"),
+    ),
+    (
+        "themes/obsidian/templates/sitemap.xml",
+        include_str!("../../scaffold/themes/obsidian/templates/sitemap.xml"),
+    ),
+    (
+        "themes/obsidian/static/style.css",
+        include_str!("../../scaffold/themes/obsidian/static/style.css"),
+    ),
 ];
 
 /// Scaffold a starter site into `target`. Errors if `target` already exists at
@@ -60,17 +66,14 @@ pub fn run(target: &Path) -> Result<()> {
     if target.exists() {
         bail!("path already exists: {}", target.display());
     }
-    fs::create_dir_all(target)
-        .with_context(|| format!("creating {}", target.display()))?;
+    fs::create_dir_all(target).with_context(|| format!("creating {}", target.display()))?;
 
     for (rel, contents) in SCAFFOLD_FILES {
         let dest = target.join(rel);
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
-        fs::write(&dest, contents)
-            .with_context(|| format!("writing {}", dest.display()))?;
+        fs::write(&dest, contents).with_context(|| format!("writing {}", dest.display()))?;
     }
 
     Ok(())
@@ -103,12 +106,12 @@ mod tests {
 
     #[test]
     fn creates_nested_parent_dirs() {
-        // content/posts/hello.md requires nested-dir creation.
+        // themes/obsidian/templates/base.html requires nested-dir creation.
         let dir = temp_path("nested");
         run(&dir).unwrap();
-        assert!(dir.join("content/posts/hello.md").exists());
-        assert!(dir.join("templates/base.html").exists());
-        assert!(dir.join("archives/rss.xml").exists());
+        assert!(dir.join("content/index.md").exists());
+        assert!(dir.join("themes/obsidian/templates/base.html").exists());
+        assert!(dir.join("themes/obsidian/static/style.css").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

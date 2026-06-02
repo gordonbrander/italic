@@ -19,7 +19,10 @@ pub fn build_stem_index(docs: &[DocMeta]) -> HashMap<String, Vec<DocMeta>> {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("");
-        index.entry(slug::slugify(stem)).or_default().push(doc.clone());
+        index
+            .entry(slug::slugify(stem))
+            .or_default()
+            .push(doc.clone());
     }
     index
 }
@@ -201,8 +204,7 @@ fn resolve<'a>(
         best = match best {
             None => Some((doc, dist)),
             Some((curr, curr_dist)) => {
-                let better =
-                    dist < curr_dist || (dist == curr_dist && doc.id_path < curr.id_path);
+                let better = dist < curr_dist || (dist == curr_dist && doc.id_path < curr.id_path);
                 if better {
                     Some((doc, dist))
                 } else {
@@ -463,10 +465,16 @@ mod tests {
 
     #[test]
     fn dir_distance_basics() {
-        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("blog/2025")), 0);
+        assert_eq!(
+            dir_distance(Path::new("blog/2025"), Path::new("blog/2025")),
+            0
+        );
         assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("blog")), 1);
         assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("")), 2);
-        assert_eq!(dir_distance(Path::new("blog/2025"), Path::new("reference")), 3);
+        assert_eq!(
+            dir_distance(Path::new("blog/2025"), Path::new("reference")),
+            3
+        );
         assert_eq!(dir_distance(Path::new("a/b/c"), Path::new("a/x/y")), 4);
     }
 }

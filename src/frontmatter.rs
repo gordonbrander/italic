@@ -18,9 +18,9 @@ pub fn split(source: &str) -> (Option<&str>, &str) {
     };
     let yaml = &after_open[..close_at];
     let after_close = &after_open[close_at + FENCE.len()..];
-    let body = after_close.strip_prefix("\r\n").unwrap_or_else(|| {
-        after_close.strip_prefix('\n').unwrap_or(after_close)
-    });
+    let body = after_close
+        .strip_prefix("\r\n")
+        .unwrap_or_else(|| after_close.strip_prefix('\n').unwrap_or(after_close));
     (Some(yaml), body)
 }
 
@@ -75,10 +75,7 @@ fn strip_fence_line(s: &str) -> Option<&str> {
 fn find_close_fence(s: &str) -> Option<usize> {
     let mut start = 0;
     while start <= s.len() {
-        let line_end = s[start..]
-            .find('\n')
-            .map(|i| start + i)
-            .unwrap_or(s.len());
+        let line_end = s[start..].find('\n').map(|i| start + i).unwrap_or(s.len());
         let line = &s[start..line_end];
         let trimmed = line.strip_suffix('\r').unwrap_or(line);
         if trimmed == FENCE {
@@ -173,10 +170,7 @@ mod tests {
     #[test]
     fn parse_returns_data_for_present_frontmatter() {
         let (data, body) = parse("---\ntitle: Hi\n---\n# Body\n").unwrap();
-        assert_eq!(
-            data.get("title").and_then(|v| v.as_str()),
-            Some("Hi")
-        );
+        assert_eq!(data.get("title").and_then(|v| v.as_str()), Some("Hi"));
         assert_eq!(body, "# Body\n");
     }
 

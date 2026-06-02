@@ -33,9 +33,8 @@ use tera::Tera;
 /// non-trivial, so build it once and share it across every markup env (and
 /// across `watch`/`serve` rebuilds) rather than rebuilding per
 /// `build_markup_env` call.
-static SYNTECT: LazyLock<Arc<SyntectAdapter>> = LazyLock::new(|| {
-    Arc::new(SyntectAdapterBuilder::new().theme("InspiredGitHub").build())
-});
+static SYNTECT: LazyLock<Arc<SyntectAdapter>> =
+    LazyLock::new(|| Arc::new(SyntectAdapterBuilder::new().theme("InspiredGitHub").build()));
 
 /// Markup-phase Tera env paired with the auto-import preamble for
 /// `templates/macros/*.html` (Phase 11) and the comrak config used to render
@@ -148,8 +147,10 @@ fn load_templates(config: &Config) -> Result<(Tera, Vec<String>)> {
         return Ok((Tera::default(), Vec::new()));
     }
     let mut tera = Tera::default();
-    let pairs: Vec<(PathBuf, Option<&str>)> =
-        files.iter().map(|(name, path)| (path.clone(), Some(name.as_str()))).collect();
+    let pairs: Vec<(PathBuf, Option<&str>)> = files
+        .iter()
+        .map(|(name, path)| (path.clone(), Some(name.as_str())))
+        .collect();
     tera.add_template_files(pairs)
         .context("loading templates")?;
     let names = files.into_iter().map(|(name, _)| name).collect();
@@ -239,7 +240,11 @@ mod tests {
         // Spec §11: even the filter form must fail on the markup env.
         let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
         let ctx = tera::Context::new();
-        assert!(env.tera.render_str("{{ 'a.md' | backlinks }}", &ctx).is_err());
+        assert!(
+            env.tera
+                .render_str("{{ 'a.md' | backlinks }}", &ctx)
+                .is_err()
+        );
     }
 
     #[test]
@@ -255,7 +260,10 @@ mod tests {
         let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
         // Unknown/empty collection renders an empty list (no error).
         let out = env
-            .render_str("{{ collection(name=\"posts\") | length }}", &tera::Context::new())
+            .render_str(
+                "{{ collection(name=\"posts\") | length }}",
+                &tera::Context::new(),
+            )
             .unwrap();
         assert_eq!(out, "0");
     }
@@ -288,7 +296,10 @@ mod tests {
     #[test]
     fn doc_missing_id_path_argument_is_an_error() {
         let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
-        assert!(env.render_str("{{ doc() }}", &tera::Context::new()).is_err());
+        assert!(
+            env.render_str("{{ doc() }}", &tera::Context::new())
+                .is_err()
+        );
     }
 
     #[test]
@@ -308,15 +319,17 @@ mod tests {
         let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
         // Unknown taxonomy renders an empty map (no error).
         let out = env
-            .render_str("{{ taxonomy(name=\"tags\") | length }}", &tera::Context::new())
+            .render_str(
+                "{{ taxonomy(name=\"tags\") | length }}",
+                &tera::Context::new(),
+            )
             .unwrap();
         assert_eq!(out, "0");
     }
 
     #[test]
     fn template_env_registers_backlinks() {
-        let mut env =
-            build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
         let out = env
             .render_str(
                 "{{ 'missing.md' | backlinks | length }}",
@@ -346,35 +359,26 @@ mod tests {
 
     #[test]
     fn markup_env_registers_permalink() {
-        let mut env =
-            build_markup_env(&cfg_without_templates(), one_doc_meta_snapshot()).unwrap();
+        let mut env = build_markup_env(&cfg_without_templates(), one_doc_meta_snapshot()).unwrap();
         let out = env
             .tera
-            .render_str(
-                "{{ 'posts/hello.md' | permalink }}",
-                &tera::Context::new(),
-            )
+            .render_str("{{ 'posts/hello.md' | permalink }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "/posts/hello.html");
     }
 
     #[test]
     fn template_env_registers_permalink() {
-        let mut env =
-            build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
         let out = env
-            .render_str(
-                "{{ 'posts/hello.md' | permalink }}",
-                &tera::Context::new(),
-            )
+            .render_str("{{ 'posts/hello.md' | permalink }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "/posts/hello.html");
     }
 
     #[test]
     fn permalink_filter_errors_on_unknown_id_path() {
-        let mut env =
-            build_markup_env(&cfg_without_templates(), one_doc_meta_snapshot()).unwrap();
+        let mut env = build_markup_env(&cfg_without_templates(), one_doc_meta_snapshot()).unwrap();
         let res = env
             .tera
             .render_str("{{ 'missing.md' | permalink }}", &tera::Context::new());
@@ -389,10 +393,7 @@ mod tests {
         )
         .unwrap();
         let out = env
-            .render_str(
-                "{{ 'posts/hello.md' | permalink }}",
-                &tera::Context::new(),
-            )
+            .render_str("{{ 'posts/hello.md' | permalink }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "https://example.com/blog/posts/hello.html");
     }
@@ -400,13 +401,9 @@ mod tests {
     #[test]
     fn permalink_without_site_url_falls_back_to_root_relative() {
         let mut env =
-            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot())
-                .unwrap();
+            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot()).unwrap();
         let out = env
-            .render_str(
-                "{{ 'posts/hello.md' | permalink }}",
-                &tera::Context::new(),
-            )
+            .render_str("{{ 'posts/hello.md' | permalink }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "/blog/posts/hello.html");
     }
@@ -414,13 +411,9 @@ mod tests {
     #[test]
     fn permalink_no_config_preserves_root_relative_output() {
         // Phase 9 regression: no site_url, no base_path → identical to pre-12 behavior.
-        let mut env =
-            build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
         let out = env
-            .render_str(
-                "{{ 'posts/hello.md' | permalink }}",
-                &tera::Context::new(),
-            )
+            .render_str("{{ 'posts/hello.md' | permalink }}", &tera::Context::new())
             .unwrap();
         assert_eq!(out, "/posts/hello.html");
     }
@@ -441,8 +434,7 @@ mod tests {
 
     #[test]
     fn link_filter_errors_on_unknown_id_path() {
-        let mut env =
-            build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
         assert!(
             env.render_str("{{ 'missing.md' | link }}", &tera::Context::new())
                 .is_err()
@@ -452,8 +444,7 @@ mod tests {
     #[test]
     fn relative_url_prepends_base_path() {
         let mut env =
-            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot())
-                .unwrap();
+            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot()).unwrap();
         let out = env
             .render_str("{{ 'css/site.css' | relative_url }}", &tera::Context::new())
             .unwrap();
@@ -463,18 +454,19 @@ mod tests {
     #[test]
     fn relative_url_handles_leading_slash_in_input() {
         let mut env =
-            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot())
-                .unwrap();
+            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot()).unwrap();
         let out = env
-            .render_str("{{ '/css/site.css' | relative_url }}", &tera::Context::new())
+            .render_str(
+                "{{ '/css/site.css' | relative_url }}",
+                &tera::Context::new(),
+            )
             .unwrap();
         assert_eq!(out, "/blog/css/site.css");
     }
 
     #[test]
     fn relative_url_with_empty_base_path() {
-        let mut env =
-            build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
+        let mut env = build_template_env(&cfg_without_templates(), one_doc_snapshot()).unwrap();
         let out = env
             .render_str("{{ 'css/site.css' | relative_url }}", &tera::Context::new())
             .unwrap();
@@ -497,8 +489,7 @@ mod tests {
     #[test]
     fn absolute_url_falls_back_without_site_url() {
         let mut env =
-            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot())
-                .unwrap();
+            build_template_env(&cfg_with_urls(None, "/blog"), one_doc_snapshot()).unwrap();
         let out = env
             .render_str("{{ 'feed.xml' | absolute_url }}", &tera::Context::new())
             .unwrap();
@@ -568,15 +559,12 @@ mod tests {
         let mut env = build_markup_env(&tmp.cfg(), empty_meta_snapshot()).unwrap();
         // `markup::render` prepends the preamble before calling render_str; do
         // the same here so this test exercises the end-to-end contract.
-        let body = format!(
-            "{}{{{{ youtube::embed(id=\"abc\") }}}}",
-            env.macro_preamble
+        let body = format!("{}{{{{ youtube::embed(id=\"abc\") }}}}", env.macro_preamble);
+        let out = env.tera.render_str(&body, &tera::Context::new()).unwrap();
+        assert_eq!(
+            out,
+            "<iframe src=\"https://youtube.com/embed/abc\"></iframe>"
         );
-        let out = env
-            .tera
-            .render_str(&body, &tera::Context::new())
-            .unwrap();
-        assert_eq!(out, "<iframe src=\"https://youtube.com/embed/abc\"></iframe>");
     }
 
     #[test]
@@ -627,8 +615,11 @@ mod tests {
     struct TempOverlay(PathBuf);
     impl TempOverlay {
         fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("mug-tera_env-overlay-{}-{}", name, std::process::id()));
+            let dir = std::env::temp_dir().join(format!(
+                "mug-tera_env-overlay-{}-{}",
+                name,
+                std::process::id()
+            ));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
@@ -671,7 +662,11 @@ mod tests {
         let o = TempOverlay::new("fallthrough");
         // Site overrides base.html but provides no post.html; the theme's
         // post.html still loads and extends the *site's* base.html.
-        o.write_template("theme", "base.html", "[THEME {% block body %}{% endblock %}]");
+        o.write_template(
+            "theme",
+            "base.html",
+            "[THEME {% block body %}{% endblock %}]",
+        );
         o.write_template("site", "base.html", "[SITE {% block body %}{% endblock %}]");
         o.write_template(
             "theme",
@@ -679,9 +674,7 @@ mod tests {
             "{% extends \"base.html\" %}{% block body %}hi{% endblock %}",
         );
         let env = build_template_env(&o.cfg(), empty_snapshot()).unwrap();
-        let out = env
-            .render("post.html", &tera::Context::new())
-            .unwrap();
+        let out = env.render("post.html", &tera::Context::new()).unwrap();
         // Theme's post.html rendered, wrapped by the site's overriding base.html.
         assert_eq!(out, "[SITE hi]");
     }
@@ -841,7 +834,10 @@ mod tests {
         let out = env
             .render_str("{{ \"*hi*\" | markdown }}", &tera::Context::new())
             .unwrap();
-        assert!(out.contains("<em>hi</em>"), "expected <em>hi</em>, got: {out}");
+        assert!(
+            out.contains("<em>hi</em>"),
+            "expected <em>hi</em>, got: {out}"
+        );
     }
 
     #[test]
@@ -875,10 +871,7 @@ mod tests {
         // The template env build does not surface a preamble, and a body that
         // calls a macro without an explicit `{% import %}` must fail.
         let tmp = TempTemplatesDir::new("template-no-auto");
-        tmp.write_macros_file(
-            "youtube.html",
-            "{% macro embed(id) %}x{% endmacro embed %}",
-        );
+        tmp.write_macros_file("youtube.html", "{% macro embed(id) %}x{% endmacro embed %}");
         let mut env = build_template_env(&tmp.cfg(), empty_snapshot()).unwrap();
         assert!(
             env.render_str("{{ youtube::embed(id=\"a\") }}", &tera::Context::new())

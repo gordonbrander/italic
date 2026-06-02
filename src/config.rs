@@ -133,8 +133,8 @@ impl Config {
         if !path.exists() {
             return Ok((Self::default(), Mapping::new()));
         }
-        let source = fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let source =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut config: Self = serde_yaml_ng::from_str(&source)
             .with_context(|| format!("parsing {} into Config", path.display()))?;
         let raw: Value = serde_yaml_ng::from_str(&source)
@@ -182,12 +182,7 @@ impl Config {
     /// with the site winning; the `site:` map is deep-merged with the site
     /// winning. The site's own `*_dir` paths are left untouched, as are
     /// `content`/`output`/`data`.
-    fn apply_theme(
-        &mut self,
-        site: &mut Mapping,
-        theme: Config,
-        theme_site: Mapping,
-    ) {
+    fn apply_theme(&mut self, site: &mut Mapping, theme: Config, theme_site: Mapping) {
         // Templates, archives, and static overlay beneath the site via the
         // `*_roots` helpers, which derive the theme's conventional
         // `templates/`/`archives/`/`static/` subdirs from `self.theme`. A theme's
@@ -358,7 +353,10 @@ fn parse_defaults(map: &Mapping) -> Result<Vec<(String, Mapping)>> {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("defaults keys must be collection names (strings)"))?;
         let frontmatter = value.as_mapping().ok_or_else(|| {
-            anyhow::anyhow!("defaults for `{}` must be a mapping of frontmatter values", name)
+            anyhow::anyhow!(
+                "defaults for `{}` must be a mapping of frontmatter values",
+                name
+            )
         })?;
         defaults.push((name.to_string(), frontmatter.clone()));
     }
@@ -436,10 +434,7 @@ mod tests {
     #[test]
     fn site_submap_is_extracted() {
         let dir = tempdir("config");
-        let path = write_config(
-            &dir,
-            "site:\n  title: My Site\n  description: A blog\n",
-        );
+        let path = write_config(&dir, "site:\n  title: My Site\n  description: A blog\n");
         let (_, site) = Config::load_with_theme(&path).unwrap();
         assert_eq!(
             site.get(Value::String("title".into()))
@@ -658,7 +653,10 @@ mod tests {
         let theme = dir.join("theme");
         // A theme always contributes its conventional subdirs regardless of any
         // `*_dir` keys in its own config.yaml.
-        write_config_in(&theme, "templates_dir: layouts\narchives_dir: views\nstatic_dir: assets\n");
+        write_config_in(
+            &theme,
+            "templates_dir: layouts\narchives_dir: views\nstatic_dir: assets\n",
+        );
         let path = write_config(&dir, &format!("theme: {}\n", theme.display()));
         let (config, _) = Config::load_with_theme(&path).unwrap();
         assert_eq!(config.template_roots()[0], theme.join("templates"));
@@ -717,7 +715,10 @@ mod tests {
         );
         let path = write_config(
             &dir,
-            &format!("theme: {}\ncollections:\n  posts:\n    limit: 10\n", theme.display()),
+            &format!(
+                "theme: {}\ncollections:\n  posts:\n    limit: 10\n",
+                theme.display()
+            ),
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
         let names: Vec<&str> = config.collections.iter().map(|(n, _)| n.as_str()).collect();
@@ -735,7 +736,10 @@ mod tests {
         write_config_in(&theme, "taxonomies:\n  - tags\n  - categories\n");
         let path = write_config(
             &dir,
-            &format!("theme: {}\ntaxonomies:\n  - tags\n  - series\n", theme.display()),
+            &format!(
+                "theme: {}\ntaxonomies:\n  - tags\n  - series\n",
+                theme.display()
+            ),
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
         assert_eq!(config.taxonomies, vec!["tags", "categories", "series"]);
@@ -772,16 +776,21 @@ mod tests {
         );
         let path = write_config(
             &dir,
-            &format!("theme: {}\nsite:\n  title: Site Title\n  url: https://site.example/\n", theme.display()),
+            &format!(
+                "theme: {}\nsite:\n  title: Site Title\n  url: https://site.example/\n",
+                theme.display()
+            ),
         );
         let (config, site) = Config::load_with_theme(&path).unwrap();
         // Site key wins; theme-only key kept.
         assert_eq!(
-            site.get(Value::String("title".into())).and_then(|v| v.as_str()),
+            site.get(Value::String("title".into()))
+                .and_then(|v| v.as_str()),
             Some("Site Title")
         );
         assert_eq!(
-            site.get(Value::String("author".into())).and_then(|v| v.as_str()),
+            site.get(Value::String("author".into()))
+                .and_then(|v| v.as_str()),
             Some("Theme Author")
         );
         // site_url re-derived from the merged map (site wins, trailing slash trimmed).
@@ -799,5 +808,4 @@ mod tests {
         assert!(config.hashtags);
         cleanup(&dir);
     }
-
 }
