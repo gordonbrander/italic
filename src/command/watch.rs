@@ -7,7 +7,7 @@
 use crate::config::Config;
 use anyhow::Result;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -32,18 +32,18 @@ pub fn watch_loop<F>(mut on_rebuild: F) -> Result<()>
 where
     F: FnMut(&Result<()>),
 {
-    let (config, _) = Config::load(Path::new("config.yaml"))?;
+    let (config, _) = Config::load_with_theme(Path::new("config.yaml"))?;
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(DEBOUNCE, tx)?;
 
-    let dirs = [
-        &config.content_dir,
-        &config.templates_dir,
-        &config.archives_dir,
-        &config.data_dir,
-        &config.static_dir,
-    ];
-    for dir in dirs {
+    // Watch both overlay layers: the `*_roots` helpers expand to the theme's
+    // subdir (when configured) and the site's, so a change to either a theme file
+    // or a site override triggers a rebuild. Content and data stay site-only.
+    let mut dirs: Vec<PathBuf> = vec![config.content_dir.clone(), config.data_dir.clone()];
+    dirs.extend(config.template_roots());
+    dirs.extend(config.archive_roots());
+    dirs.extend(config.static_roots());
+    for dir in &dirs {
         if dir.exists() {
             debouncer.watcher().watch(dir, RecursiveMode::Recursive)?;
         }

@@ -15,7 +15,7 @@
 //! never appear in `collection()`/`taxonomy()`.
 
 use crate::build::markup;
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::doc::{Doc, DocMeta};
 use crate::doc_index::DocIndex;
 use crate::permalink;
@@ -27,9 +27,8 @@ use rayon::prelude::*;
 use serde::Serialize;
 use serde_yaml_ng::{Mapping, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use walkdir::WalkDir;
 
 /// One file in `archives/`. The body is the Tera template each emitted page
 /// renders; `kind` selects what it iterates.
@@ -139,34 +138,34 @@ fn required_name(data: &Mapping, key: &str, id_path: &std::path::Path) -> Result
         })
 }
 
+/// Whether `path`'s file name starts with a dot (e.g. `.DS_Store`). Such files
+/// are skipped when collecting archives.
+fn is_dotfile(path: &Path) -> bool {
+    path.file_name()
+        .map(|n| n.to_string_lossy().starts_with('.'))
+        .unwrap_or(false)
+}
+
 pub fn run(
     config: &Config,
     site_data: &SiteData,
     classification: &Arc<DocIndex>,
 ) -> Result<Vec<Doc>> {
-    if !config.archives_dir.exists() {
-        return Ok(Vec::new());
-    }
-
+    // Walk the archive roots in overlay order (theme then site), deduped per
+    // `id_path` so a site archive replaces a theme archive of the same name — the
+    // same per-path override the templates and static layers give. Dotfiles are
+    // skipped; `id_path` is the path relative to its root.
     let mut archives: Vec<Archive> = Vec::new();
-    for entry in WalkDir::new(&config.archives_dir) {
-        let entry = entry.with_context(|| format!("walking {}", config.archives_dir.display()))?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if entry.file_name().to_string_lossy().starts_with('.') {
-            continue;
-        }
-        let path = entry.path();
-        let id_path = path
-            .strip_prefix(&config.archives_dir)
-            .with_context(|| format!("stripping prefix from {}", path.display()))?
-            .to_path_buf();
+    for (id_path, path) in config::overlay_files(&config.archive_roots(), |p| !is_dotfile(p))? {
         let source =
-            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let a = Archive::parse(id_path, &source)
             .with_context(|| format!("parsing archive {}", path.display()))?;
         archives.push(a);
+    }
+
+    if archives.is_empty() {
+        return Ok(Vec::new());
     }
 
     // Frozen `DocMeta` view of the source docs (post-markup) for wikilink
@@ -315,6 +314,7 @@ fn epoch() -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::tempdir;
 
     #[test]
     fn parse_collection_archive() {
@@ -370,5 +370,67 @@ mod tests {
     fn parse_taxonomy_kind_requires_taxonomy_name() {
         let source = "---\nkind: taxonomy\npermalink: /tags/:term/\n---\nBODY";
         assert!(Archive::parse(PathBuf::from("x.html"), source).is_err());
+    }
+
+    fn write_archive(base: &std::path::Path, layer: &str, rel: &str, body: &str) {
+        let path = base.join(layer).join("archives").join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, body).unwrap();
+    }
+
+    #[test]
+    fn site_archive_overrides_theme_archive_of_same_name() {
+        let base = tempdir("overlay");
+        // Both layers define archives/blog.html over the (empty) `posts`
+        // collection, with distinct permalinks so the winner is identifiable.
+        write_archive(
+            &base,
+            "theme",
+            "blog.html",
+            "---\nkind: collection\ncollection: posts\npermalink: /theme-blog/\n---\nBODY",
+        );
+        write_archive(
+            &base,
+            "site",
+            "blog.html",
+            "---\nkind: collection\ncollection: posts\npermalink: /site-blog/\n---\nBODY",
+        );
+        let config = Config {
+            archives_dir: base.join("site").join("archives"),
+            theme: Some(base.join("theme")),
+            // No templates dir → empty Tera markup env, fine for a body of "BODY".
+            templates_dir: base.join("none"),
+            ..Config::default()
+        };
+        let site_data = SiteData { site: Mapping::new(), data: Mapping::new() };
+        let classification = Arc::new(DocIndex::new());
+        let pages = run(&config, &site_data, &classification).unwrap();
+        // Site's blog.html shadows the theme's: one page, at the site permalink.
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].output_path, PathBuf::from("site-blog/index.html"));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn theme_only_archive_is_produced() {
+        let base = tempdir("theme-only");
+        write_archive(
+            &base,
+            "theme",
+            "blog.html",
+            "---\nkind: collection\ncollection: posts\npermalink: /blog/\n---\nBODY",
+        );
+        let config = Config {
+            archives_dir: base.join("site").join("archives"), // does not exist
+            theme: Some(base.join("theme")),
+            templates_dir: base.join("none"),
+            ..Config::default()
+        };
+        let site_data = SiteData { site: Mapping::new(), data: Mapping::new() };
+        let classification = Arc::new(DocIndex::new());
+        let pages = run(&config, &site_data, &classification).unwrap();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].output_path, PathBuf::from("blog/index.html"));
+        let _ = fs::remove_dir_all(&base);
     }
 }
