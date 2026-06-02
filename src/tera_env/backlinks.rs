@@ -92,9 +92,9 @@ fn from_kwargs(args: &HashMap<String, Value>) -> tera::Result<Backlinks> {
     }
 
     if let Some(v) = args.get("limit") {
-        let n = v.as_u64().ok_or_else(|| {
-            tera::Error::msg("backlinks: `limit` must be a non-negative integer")
-        })?;
+        let n = v
+            .as_u64()
+            .ok_or_else(|| tera::Error::msg("backlinks: `limit` must be a non-negative integer"))?;
         b.limit = Some(n as usize);
     }
 

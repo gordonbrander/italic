@@ -12,16 +12,15 @@
 /// alphabetically by stem so output is deterministic. Returns `""` when there are
 /// no macro files.
 pub fn macro_preamble(names: &[String]) -> String {
-    let mut stems: Vec<&str> = names
-        .iter()
-        .filter_map(|name| macro_stem(name))
-        .collect();
+    let mut stems: Vec<&str> = names.iter().filter_map(|name| macro_stem(name)).collect();
     stems.sort_unstable();
     stems.dedup();
 
     let mut out = String::new();
     for stem in stems {
-        out.push_str(&format!("{{% import \"macros/{stem}.html\" as {stem} %}}\n"));
+        out.push_str(&format!(
+            "{{% import \"macros/{stem}.html\" as {stem} %}}\n"
+        ));
     }
     out
 }

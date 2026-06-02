@@ -203,7 +203,10 @@ mod tests {
         };
         index.define_collection("posts", &q);
         // Default order is date desc: B (Mar) before A (Jan); C is filtered out.
-        let titles: Vec<&str> = index.get_collection("posts").map(|d| d.title.as_str()).collect();
+        let titles: Vec<&str> = index
+            .get_collection("posts")
+            .map(|d| d.title.as_str())
+            .collect();
         assert_eq!(titles, vec!["B", "A"]);
     }
 
@@ -274,7 +277,11 @@ mod tests {
         // tags taxonomy is defined but empty; categories has the doc.
         assert!(index.get_taxonomy("tags").unwrap().is_empty());
         assert_eq!(
-            index.get_taxonomy("categories").unwrap().get("tech").unwrap(),
+            index
+                .get_taxonomy("categories")
+                .unwrap()
+                .get("tech")
+                .unwrap(),
             &vec![PathBuf::from("a.md")]
         );
     }

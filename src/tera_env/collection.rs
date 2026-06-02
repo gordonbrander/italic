@@ -58,7 +58,9 @@ fn collection_name(args: &HashMap<String, Value>) -> tera::Result<String> {
     match args.get("name") {
         Some(Value::String(s)) => Ok(s.clone()),
         Some(_) => Err(tera::Error::msg("collection: `name` must be a string")),
-        None => Err(tera::Error::msg("collection: missing required `name` argument")),
+        None => Err(tera::Error::msg(
+            "collection: missing required `name` argument",
+        )),
     }
 }
 
@@ -68,14 +70,14 @@ fn parse_omit(args: &HashMap<String, Value>) -> tera::Result<Vec<PathBuf>> {
     match args.get("omit") {
         None => Ok(Vec::new()),
         Some(v) => {
-            let arr = v
-                .as_array()
-                .ok_or_else(|| tera::Error::msg("collection: `omit` must be an array of strings"))?;
+            let arr = v.as_array().ok_or_else(|| {
+                tera::Error::msg("collection: `omit` must be an array of strings")
+            })?;
             arr.iter()
                 .map(|e| {
-                    e.as_str()
-                        .map(PathBuf::from)
-                        .ok_or_else(|| tera::Error::msg("collection: `omit` entries must be strings"))
+                    e.as_str().map(PathBuf::from).ok_or_else(|| {
+                        tera::Error::msg("collection: `omit` entries must be strings")
+                    })
                 })
                 .collect()
         }

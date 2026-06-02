@@ -78,22 +78,28 @@ impl Archive {
             .get("permalink")
             .and_then(Value::as_str)
             .ok_or_else(|| {
-                anyhow!("archive `{}` missing required `permalink` field", id_path.display())
+                anyhow!(
+                    "archive `{}` missing required `permalink` field",
+                    id_path.display()
+                )
             })?
             .to_string();
 
-        let per_page = data.get("per_page").and_then(Value::as_u64).map(|n| n as usize);
-        let template = data.get("template").and_then(Value::as_str).map(str::to_string);
-
-        let kind_str = data
-            .get("kind")
+        let per_page = data
+            .get("per_page")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let template = data
+            .get("template")
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                anyhow!(
-                    "archive `{}` missing required `kind` field (collection|taxonomy)",
-                    id_path.display()
-                )
-            })?;
+            .map(str::to_string);
+
+        let kind_str = data.get("kind").and_then(Value::as_str).ok_or_else(|| {
+            anyhow!(
+                "archive `{}` missing required `kind` field (collection|taxonomy)",
+                id_path.display()
+            )
+        })?;
         let kind = match kind_str {
             "collection" => {
                 let collection = required_name(&data, "collection", &id_path)?;
@@ -211,15 +217,20 @@ fn produce(
                 return Ok(out);
             };
             for (slug, ids) in terms {
-                let items: Vec<Doc> =
-                    ids.iter().filter_map(|id| classification.doc(id).cloned()).collect();
+                let items: Vec<Doc> = ids
+                    .iter()
+                    .filter_map(|id| classification.doc(id).cloned())
+                    .collect();
                 // Display text comes from any member's term bucket; fall back to
                 // the slug if (impossibly) absent.
                 let text = items
                     .iter()
                     .find_map(|d| d.terms.get(taxonomy).and_then(|b| b.get(slug)).cloned())
                     .unwrap_or_else(|| slug.clone());
-                let term = Term { slug: slug.clone(), text };
+                let term = Term {
+                    slug: slug.clone(),
+                    text,
+                };
                 out.extend(paginate(env, site_data, archive, &items, Some(term))?);
             }
             Ok(out)
@@ -243,8 +254,15 @@ fn paginate(
         .context("serializing term context")?;
 
     // per_page=0 or unset → single page with every item.
-    let per_page = archive.per_page.filter(|n| *n > 0).unwrap_or(items.len().max(1));
-    let total_pages = if items.is_empty() { 1 } else { items.len().div_ceil(per_page) };
+    let per_page = archive
+        .per_page
+        .filter(|n| *n > 0)
+        .unwrap_or(items.len().max(1));
+    let total_pages = if items.is_empty() {
+        1
+    } else {
+        items.len().div_ceil(per_page)
+    };
 
     let url_for = |page: usize| -> String {
         let pattern = permalink::paginate_pattern(&archive.permalink, page);
@@ -402,7 +420,10 @@ mod tests {
             templates_dir: base.join("none"),
             ..Config::default()
         };
-        let site_data = SiteData { site: Mapping::new(), data: Mapping::new() };
+        let site_data = SiteData {
+            site: Mapping::new(),
+            data: Mapping::new(),
+        };
         let classification = Arc::new(DocIndex::new());
         let pages = run(&config, &site_data, &classification).unwrap();
         // Site's blog.html shadows the theme's: one page, at the site permalink.
@@ -426,7 +447,10 @@ mod tests {
             templates_dir: base.join("none"),
             ..Config::default()
         };
-        let site_data = SiteData { site: Mapping::new(), data: Mapping::new() };
+        let site_data = SiteData {
+            site: Mapping::new(),
+            data: Mapping::new(),
+        };
         let classification = Arc::new(DocIndex::new());
         let pages = run(&config, &site_data, &classification).unwrap();
         assert_eq!(pages.len(), 1);

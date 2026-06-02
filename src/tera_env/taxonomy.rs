@@ -34,6 +34,8 @@ fn taxonomy_name(args: &HashMap<String, Value>) -> tera::Result<String> {
     match args.get("name") {
         Some(Value::String(s)) => Ok(s.clone()),
         Some(_) => Err(tera::Error::msg("taxonomy: `name` must be a string")),
-        None => Err(tera::Error::msg("taxonomy: missing required `name` argument")),
+        None => Err(tera::Error::msg(
+            "taxonomy: missing required `name` argument",
+        )),
     }
 }

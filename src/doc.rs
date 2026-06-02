@@ -136,7 +136,11 @@ impl Doc {
     pub fn uplift_frontmatter(&mut self, taxonomies: &[String]) {
         self.title = uplift_string(&self.data, "title").unwrap_or_default();
         self.summary = uplift_string(&self.data, "summary").unwrap_or_default();
-        self.draft = self.data.get("draft").and_then(Value::as_bool).unwrap_or(false);
+        self.draft = self
+            .data
+            .get("draft")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         self.template = uplift_string(&self.data, "template");
         self.terms = uplift_terms(&self.data, taxonomies);
         if let Some(date) = parse_date(self.data.get("date")) {
@@ -353,7 +357,12 @@ mod tests {
     #[test]
     fn uplift_frontmatter_draft_false_absent_or_non_bool() {
         // Explicit false, missing, and a non-bool value all uplift to `false`.
-        let explicit = uplifted("p.md", "", map_from(&[("draft", Value::Bool(false))]), &tax());
+        let explicit = uplifted(
+            "p.md",
+            "",
+            map_from(&[("draft", Value::Bool(false))]),
+            &tax(),
+        );
         assert!(!explicit.draft);
 
         let missing = uplifted("p.md", "", Mapping::new(), &tax());
@@ -558,7 +567,12 @@ mod tests {
 
     #[test]
     fn apply_defaults_own_frontmatter_wins() {
-        let mut d = uplifted("posts/hello.md", "", mapping("permalink: /custom/\n"), &tax());
+        let mut d = uplifted(
+            "posts/hello.md",
+            "",
+            mapping("permalink: /custom/\n"),
+            &tax(),
+        );
         d.apply_defaults(&mapping("permalink: \":slug/\"\n"));
         d.uplift_frontmatter(&tax());
         assert_eq!(d.output_path, PathBuf::from("custom/index.html"));

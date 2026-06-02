@@ -33,12 +33,10 @@ fn copy_tree(root: &Path, output_dir: &Path) -> Result<()> {
             .expect("walkdir entry is always under the root we passed in");
         let dest = output_dir.join(rel);
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
-        fs::copy(entry.path(), &dest).with_context(|| {
-            format!("copying {} -> {}", entry.path().display(), dest.display())
-        })?;
+        fs::copy(entry.path(), &dest)
+            .with_context(|| format!("copying {} -> {}", entry.path().display(), dest.display()))?;
     }
     Ok(())
 }

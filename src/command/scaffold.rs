@@ -8,7 +8,10 @@ const SCAFFOLD_FILES: &[(&str, &str)] = &[
     ("config.yaml", include_str!("../../scaffold/config.yaml")),
     // Content: a small interlinked digital garden. Each note links to others
     // with [[wikilinks]] so the obsidian theme's backlinks have something to show.
-    ("content/index.md", include_str!("../../scaffold/content/index.md")),
+    (
+        "content/index.md",
+        include_str!("../../scaffold/content/index.md"),
+    ),
     (
         "content/digital-garden.md",
         include_str!("../../scaffold/content/digital-garden.md"),
@@ -25,7 +28,10 @@ const SCAFFOLD_FILES: &[(&str, &str)] = &[
         "content/sitemap.html",
         include_str!("../../scaffold/content/sitemap.html"),
     ),
-    ("static/.gitkeep", include_str!("../../scaffold/static/.gitkeep")),
+    (
+        "static/.gitkeep",
+        include_str!("../../scaffold/static/.gitkeep"),
+    ),
     // The bundled "obsidian" theme: templates, styles, and config defaults for a
     // wiki / digital garden. Activated by `theme: themes/obsidian` in config.yaml.
     (
@@ -60,17 +66,14 @@ pub fn run(target: &Path) -> Result<()> {
     if target.exists() {
         bail!("path already exists: {}", target.display());
     }
-    fs::create_dir_all(target)
-        .with_context(|| format!("creating {}", target.display()))?;
+    fs::create_dir_all(target).with_context(|| format!("creating {}", target.display()))?;
 
     for (rel, contents) in SCAFFOLD_FILES {
         let dest = target.join(rel);
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
-        fs::write(&dest, contents)
-            .with_context(|| format!("writing {}", dest.display()))?;
+        fs::write(&dest, contents).with_context(|| format!("writing {}", dest.display()))?;
     }
 
     Ok(())

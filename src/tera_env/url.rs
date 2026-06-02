@@ -52,7 +52,12 @@ struct PermalinkFilter {
 impl Filter for PermalinkFilter {
     fn filter(&self, value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
         let url = lookup_doc_url(&self.lookup, value, "permalink")?;
-        let out = format!("{}{}{}", self.site_url.as_deref().unwrap_or(""), self.base_path, url);
+        let out = format!(
+            "{}{}{}",
+            self.site_url.as_deref().unwrap_or(""),
+            self.base_path,
+            url
+        );
         Ok(Value::String(out))
     }
 
@@ -125,12 +130,7 @@ impl Filter for AbsoluteUrlFilter {
     }
 }
 
-pub fn register(
-    env: &mut Tera,
-    lookup: DocUrlLookup,
-    site_url: Option<String>,
-    base_path: String,
-) {
+pub fn register(env: &mut Tera, lookup: DocUrlLookup, site_url: Option<String>, base_path: String) {
     env.register_filter(
         "permalink",
         PermalinkFilter {
@@ -161,11 +161,7 @@ pub fn register(
     );
 }
 
-fn lookup_doc_url(
-    lookup: &DocUrlLookup,
-    value: &Value,
-    filter_name: &str,
-) -> tera::Result<String> {
+fn lookup_doc_url(lookup: &DocUrlLookup, value: &Value, filter_name: &str) -> tera::Result<String> {
     let id_path_str = value.as_str().ok_or_else(|| {
         tera::Error::msg(format!(
             "{} filter: input must be a string id_path",

@@ -208,5 +208,7 @@ fn error_response(status: StatusCode, msg: String) -> Response<ServeBody> {
 }
 
 fn full(bytes: Bytes) -> ServeBody {
-    Full::new(bytes).map_err(|never| match never {}).boxed_unsync()
+    Full::new(bytes)
+        .map_err(|never| match never {})
+        .boxed_unsync()
 }

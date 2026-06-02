@@ -90,7 +90,12 @@ mod tests {
 
     #[test]
     fn expand_substitutes_slug_from_stem() {
-        let p = expand("/blog/:slug/", Path::new("posts/Hello World.md"), &date(2025, 1, 1), None);
+        let p = expand(
+            "/blog/:slug/",
+            Path::new("posts/Hello World.md"),
+            &date(2025, 1, 1),
+            None,
+        );
         assert_eq!(p, PathBuf::from("blog/hello-world/index.html"));
     }
 
@@ -107,7 +112,12 @@ mod tests {
 
     #[test]
     fn expand_trailing_slash_appends_index_html() {
-        let p = expand("/blog/:slug/", Path::new("hello.md"), &date(2025, 10, 31), None);
+        let p = expand(
+            "/blog/:slug/",
+            Path::new("hello.md"),
+            &date(2025, 10, 31),
+            None,
+        );
         assert_eq!(p, PathBuf::from("blog/hello/index.html"));
     }
 
@@ -131,13 +141,23 @@ mod tests {
 
     #[test]
     fn expand_substitutes_term() {
-        let p = expand("/tags/:term/", Path::new("tags.html"), &date(1970, 1, 1), Some("rust"));
+        let p = expand(
+            "/tags/:term/",
+            Path::new("tags.html"),
+            &date(1970, 1, 1),
+            Some("rust"),
+        );
         assert_eq!(p, PathBuf::from("tags/rust/index.html"));
     }
 
     #[test]
     fn expand_leaves_term_literal_when_none() {
-        let p = expand("/tags/:term/", Path::new("tags.html"), &date(1970, 1, 1), None);
+        let p = expand(
+            "/tags/:term/",
+            Path::new("tags.html"),
+            &date(1970, 1, 1),
+            None,
+        );
         assert_eq!(p, PathBuf::from("tags/:term/index.html"));
     }
 
