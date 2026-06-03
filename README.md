@@ -420,6 +420,34 @@ array of `{key, value}` objects sorted by key — handy for walking a
 
 Available in: template phase, content phase.
 
+### `dirtree` — fold docs into a directory tree
+
+`docs | dirtree` groups an array of docs by their output path and returns the
+content root's children as a tree, so you can render docs as a hierarchy
+(sitemap, archive index, file-browser nav) instead of a flat list. Each node is
+either a directory (`kind: "dir"`, with `children`) or a file (`kind: "file"`,
+with the original `doc`); both carry a `name` (the path segment) and a `path`
+(the accumulated output path). Children are sorted by `name`. Walk it with a
+recursive macro:
+
+```jinja
+{% macro tree(nodes) %}
+<ul>
+  {% for n in nodes %}
+    {% if n.kind == "dir" %}
+      <li>{{ n.name }}{{ self::tree(nodes=n.children) }}</li>
+    {% else %}
+      <li><a href="{{ n.doc.id_path | link }}">{{ n.doc.title }}</a></li>
+    {% endif %}
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{{ self::tree(nodes=collection(name="posts") | dirtree) }}
+```
+
+Available in: template phase, content phase.
+
 ### `truncate_words` — word-aware truncation
 
 `text | truncate_words(length=N)` truncates at the last whitespace that fits,
