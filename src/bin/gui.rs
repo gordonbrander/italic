@@ -49,10 +49,6 @@ struct App {
     log: String,
     serve_handle: Option<ServeHandle>,
     serve_addr: Option<SocketAddr>,
-    // "New site" form state.
-    show_new: bool,
-    new_location: Option<PathBuf>,
-    new_name: String,
 }
 
 impl App {
@@ -67,9 +63,6 @@ impl App {
             log: String::new(),
             serve_handle: None,
             serve_addr: None,
-            show_new: false,
-            new_location: None,
-            new_name: String::new(),
         }
     }
 
@@ -180,21 +173,20 @@ impl App {
         });
     }
 
-    fn create_new_site(&mut self) {
-        let Some(location) = self.new_location.clone() else {
+    /// Prompt for a folder name + location (a save dialog, so the chosen path can
+    /// be one that doesn't exist yet — which is what `mug::new` requires), then
+    /// scaffold a starter site there and open it.
+    fn new_site(&mut self) {
+        let Some(target) = rfd::FileDialog::new()
+            .set_title("New site — choose a name and location")
+            .save_file()
+        else {
             return;
         };
-        let name = self.new_name.trim();
-        if name.is_empty() {
-            return;
-        }
-        let target = location.join(name);
         match mug::new(&target) {
             Ok(()) => {
                 self.push(format!("Created new site at {}", target.display()));
                 self.project = Some(target);
-                self.show_new = false;
-                self.new_name.clear();
             }
             Err(e) => self.push(format!("✗ Couldn't create site: {e:#}")),
         }
@@ -232,41 +224,9 @@ impl eframe::App for App {
                     .add_enabled(idle, egui::Button::new("New site…"))
                     .clicked()
                 {
-                    self.show_new = !self.show_new;
+                    self.new_site();
                 }
             });
-
-            if self.show_new {
-                ui.add_space(4.0);
-                ui.group(|ui| {
-                    ui.label("Create a new starter site");
-                    ui.horizontal(|ui| {
-                        if ui.button("Choose location…").clicked()
-                            && let Some(dir) = rfd::FileDialog::new().pick_folder()
-                        {
-                            self.new_location = Some(dir);
-                        }
-                        ui.label(match &self.new_location {
-                            Some(p) => p.display().to_string(),
-                            None => "(no location chosen)".to_string(),
-                        });
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Name:");
-                        ui.text_edit_singleline(&mut self.new_name);
-                    });
-                    let can_create =
-                        self.new_location.is_some() && !self.new_name.trim().is_empty();
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(can_create, egui::Button::new("Create")).clicked() {
-                            self.create_new_site();
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.show_new = false;
-                        }
-                    });
-                });
-            }
 
             ui.separator();
 
