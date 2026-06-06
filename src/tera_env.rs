@@ -15,6 +15,7 @@ mod doc;
 mod entries;
 mod macros;
 mod markdown;
+mod related;
 mod taxonomy;
 mod text;
 mod url;
@@ -114,6 +115,7 @@ pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera>
     doc::register(&mut env, index.clone());
     taxonomy::register(&mut env, index.clone());
     backlinks::register(&mut env, index.clone());
+    related::register(&mut env, index.clone(), config.related.clone());
     // URL filters resolve `id_path` -> URL through the shared `DocIndex` (O(1)),
     // not a cloned `DocMeta` vec.
     url::register(
@@ -340,6 +342,27 @@ mod tests {
             )
             .unwrap();
         assert_eq!(out, "0");
+    }
+
+    #[test]
+    fn template_env_registers_related() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        // Unknown doc relates to nothing — empty list, no error.
+        let out = env
+            .render_str(
+                "{{ 'missing.md' | related | length }}",
+                &tera::Context::new(),
+            )
+            .unwrap();
+        assert_eq!(out, "0");
+    }
+
+    #[test]
+    fn markup_env_does_not_register_related() {
+        // Spec §11: index-listing filters must fail on the markup env.
+        let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
+        let ctx = tera::Context::new();
+        assert!(env.tera.render_str("{{ 'a.md' | related }}", &ctx).is_err());
     }
 
     fn one_doc() -> Doc {

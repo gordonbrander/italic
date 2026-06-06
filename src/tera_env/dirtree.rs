@@ -40,9 +40,9 @@ pub fn register(env: &mut Tera) {
     env.register_filter(
         "dirtree",
         |value: &Value, _args: &HashMap<String, Value>| -> tera::Result<Value> {
-            let docs = value
-                .as_array()
-                .ok_or_else(|| tera::Error::msg("dirtree filter: input must be an array of docs"))?;
+            let docs = value.as_array().ok_or_else(|| {
+                tera::Error::msg("dirtree filter: input must be an array of docs")
+            })?;
             build_tree(docs)
         },
     );
@@ -62,9 +62,12 @@ fn build_tree(docs: &[Value]) -> tera::Result<Value> {
     let mut root: BTreeMap<String, Node> = BTreeMap::new();
 
     'docs: for doc in docs {
-        let output_path = doc.get("output_path").and_then(Value::as_str).ok_or_else(|| {
-            tera::Error::msg("dirtree filter: every doc must have a string `output_path`")
-        })?;
+        let output_path = doc
+            .get("output_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                tera::Error::msg("dirtree filter: every doc must have a string `output_path`")
+            })?;
 
         // `PathBuf` serializes with `/` separators on this project's platforms;
         // splitting the string keeps us in the URL layout the user asked for.
@@ -137,8 +140,9 @@ mod tests {
     /// serializes the map to a `Value::Object`, the same shape a real `Doc`
     /// produces.
     fn doc(output_path: &str, title: &str) -> Value {
-        let map: BTreeMap<&str, &str> =
-            [("output_path", output_path), ("title", title)].into_iter().collect();
+        let map: BTreeMap<&str, &str> = [("output_path", output_path), ("title", title)]
+            .into_iter()
+            .collect();
         tera::to_value(map).unwrap()
     }
 

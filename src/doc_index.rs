@@ -19,6 +19,7 @@
 use crate::backlinks::Backlinks;
 use crate::doc::{Doc, DocMeta};
 use crate::query::{OrderKey, Query, SortDir};
+use crate::related::{LINKS, Related, idf};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -216,6 +217,98 @@ impl DocIndex {
         }
 
         results
+    }
+
+    // --- related -----------------------------------------------------------
+
+    /// Docs related to `post`, scored by weighted shared-term overlap across the
+    /// namespaces in `opts.weights` and ranked best-first. Each namespace is
+    /// either a taxonomy (shared term slugs, via the inverted taxonomy index) or
+    /// the [`LINKS`](crate::related::LINKS) graph, where overlap captures three
+    /// link relationships at once:
+    /// - **backlink** — a doc that links to `post` (`backlinks[post]`);
+    /// - **forward link** — a doc `post` links to (`post.links`);
+    /// - **co-citation** — a doc that links to a target `post` also links to
+    ///   (`backlinks[target]`).
+    ///
+    /// Scores accumulate `weight * idf(df)` per shared term; `idf` is flat in
+    /// Phase 1, so this is weighted overlap counting. The query doc is never
+    /// related to itself (the guard only bites on a genuine self-link or shared
+    /// own-term), and `opts.omit` drops further docs, both before `limit`. Ties
+    /// break by `date` desc then `id_path` asc, matching the other listings.
+    /// An unknown `post` yields an empty `Vec`.
+    pub fn related(&self, post: &Path, opts: &Related) -> Vec<&Doc> {
+        let Some(post_doc) = self.docs.get(post) else {
+            return Vec::new();
+        };
+
+        let mut scores: HashMap<PathBuf, f64> = HashMap::new();
+        for (namespace, weight) in &opts.weights {
+            if namespace == LINKS {
+                // Backlinks: docs that link to `post`.
+                let w = weight * idf(self.link_df(post));
+                for linker in self.linkers(post) {
+                    *scores.entry(linker.clone()).or_default() += w;
+                }
+                for target in &post_doc.links {
+                    let w = weight * idf(self.link_df(target));
+                    // Forward link: `post` -> `target`.
+                    *scores.entry(target.clone()).or_default() += w;
+                    // Co-citation: other docs that also link to `target`.
+                    for linker in self.linkers(target) {
+                        *scores.entry(linker.clone()).or_default() += w;
+                    }
+                }
+            } else if let Some(taxonomy) = self.taxonomies.get(namespace) {
+                let Some(bucket) = post_doc.terms.get(namespace) else {
+                    continue;
+                };
+                for term in bucket.keys() {
+                    if let Some(ids) = taxonomy.get(term) {
+                        let w = weight * idf(ids.len());
+                        for id in ids {
+                            *scores.entry(id.clone()).or_default() += w;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Never relate a doc to itself, then honor explicit omissions. Both run
+        // before the limit truncates.
+        scores.remove(post);
+        for omit in &opts.omit {
+            scores.remove(omit);
+        }
+
+        let mut ranked: Vec<(&Doc, f64)> = scores
+            .into_iter()
+            .filter_map(|(id, score)| self.docs.get(&id).map(|doc| (doc, score)))
+            .collect();
+        ranked.sort_by(|(a, sa), (b, sb)| {
+            sb.partial_cmp(sa)
+                .unwrap_or(std::cmp::Ordering::Equal) // score desc
+                .then_with(|| b.date.cmp(&a.date)) // date desc
+                .then_with(|| a.id_path.cmp(&b.id_path)) // id_path asc
+        });
+
+        let mut docs: Vec<&Doc> = ranked.into_iter().map(|(doc, _)| doc).collect();
+        if let Some(n) = opts.limit {
+            docs.truncate(n);
+        }
+        docs
+    }
+
+    /// Docs that link to `target` (its backlinks), or an empty slice if none.
+    fn linkers(&self, target: &Path) -> &[PathBuf] {
+        self.backlinks.get(target).map_or(&[], Vec::as_slice)
+    }
+
+    /// Document frequency of a link-graph term `target`: how many docs share it,
+    /// i.e. those that link to it plus the target doc itself (which contributes
+    /// its own id as a term). Feeds the `idf` seam; flat while `idf == 1.0`.
+    fn link_df(&self, target: &Path) -> usize {
+        self.linkers(target).len() + usize::from(self.docs.contains_key(target))
     }
 }
 
@@ -529,5 +622,169 @@ mod tests {
         let index = linked_index(vec![linking("a.md", "A", "2025-01-01", &["a.md"])]);
         let results = index.list_backlinks(Path::new("a.md"), &Backlinks::default());
         assert_eq!(results.len(), 1);
+    }
+
+    // --- related -----------------------------------------------------------
+
+    use crate::related::{LINKS, Related};
+
+    /// Build an index and populate every cached listing `related` reads: the
+    /// taxonomy buckets and the inverted link graph.
+    fn related_index(docs: Vec<Doc>) -> DocIndex {
+        let mut idx = index(docs);
+        idx.define_taxonomies(&["tags".to_string()]);
+        idx.define_backlinks();
+        idx
+    }
+
+    fn weights(pairs: &[(&str, f64)]) -> Related {
+        Related {
+            weights: pairs.iter().map(|(n, w)| (n.to_string(), *w)).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn titles(docs: &[&Doc]) -> Vec<String> {
+        docs.iter().map(|d| d.title.clone()).collect()
+    }
+
+    #[test]
+    fn related_ranks_by_shared_tag_overlap() {
+        let index = related_index(vec![
+            with_tags(doc("p.md", "P", "2025-01-01"), &["rust", "ssg"]),
+            with_tags(doc("a.md", "A", "2025-01-02"), &["rust", "ssg"]), // 2 shared
+            with_tags(doc("b.md", "B", "2025-01-03"), &["rust"]),        // 1 shared
+        ]);
+        let results = index.related(Path::new("p.md"), &weights(&[("tags", 1.0)]));
+        assert_eq!(titles(&results), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn related_weights_reorder_namespaces() {
+        // A shares a tag with P; B is a forward link from P. The heavier
+        // namespace ranks its doc first.
+        let docs = || {
+            vec![
+                with_tags(linking("p.md", "P", "2025-01-01", &["b.md"]), &["rust"]),
+                with_tags(doc("a.md", "A", "2025-01-02"), &["rust"]), // tag overlap
+                doc("b.md", "B", "2025-01-03"),                       // forward link
+            ]
+        };
+        let tags_heavy = related_index(docs());
+        let r = tags_heavy.related(Path::new("p.md"), &weights(&[("tags", 3.0), (LINKS, 1.0)]));
+        assert_eq!(titles(&r), vec!["A", "B"]);
+
+        let links_heavy = related_index(docs());
+        let r = links_heavy.related(Path::new("p.md"), &weights(&[("tags", 1.0), (LINKS, 3.0)]));
+        assert_eq!(titles(&r), vec!["B", "A"]);
+    }
+
+    #[test]
+    fn related_never_includes_self() {
+        // Shared tags and a self-link both point a doc at itself; neither should
+        // surface it in its own list.
+        let index = related_index(vec![
+            with_tags(linking("p.md", "P", "2025-01-01", &["p.md"]), &["rust"]),
+            with_tags(doc("a.md", "A", "2025-01-02"), &["rust"]),
+        ]);
+        let results = index.related(Path::new("p.md"), &weights(&[("tags", 1.0), (LINKS, 1.0)]));
+        assert_eq!(titles(&results), vec!["A"]);
+    }
+
+    #[test]
+    fn related_co_citation_without_shared_tags() {
+        // P and B both link to C, share no tags — still related via the graph.
+        let index = related_index(vec![
+            linking("p.md", "P", "2025-01-01", &["c.md"]),
+            linking("b.md", "B", "2025-01-02", &["c.md"]),
+            doc("c.md", "C", "2025-01-03"),
+        ]);
+        let results = index.related(Path::new("p.md"), &weights(&[(LINKS, 1.0)]));
+        // C (forward link) and B (co-citation) are both related.
+        let mut got = titles(&results);
+        got.sort();
+        assert_eq!(got, vec!["B", "C"]);
+    }
+
+    #[test]
+    fn related_forward_and_backlink_are_symmetric() {
+        let index = related_index(vec![
+            linking("a.md", "A", "2025-01-01", &["b.md"]),
+            doc("b.md", "B", "2025-01-02"),
+        ]);
+        // Forward: A links B → B is related to A.
+        let from_a = index.related(Path::new("a.md"), &weights(&[(LINKS, 1.0)]));
+        assert_eq!(titles(&from_a), vec!["B"]);
+        // Backlink: B is linked by A → A is related to B.
+        let from_b = index.related(Path::new("b.md"), &weights(&[(LINKS, 1.0)]));
+        assert_eq!(titles(&from_b), vec!["A"]);
+    }
+
+    #[test]
+    fn related_tie_break_is_date_then_id_path() {
+        // All three share the tag, so scores tie; order falls back to date desc
+        // then id_path asc. b/c share a date, so id_path breaks them.
+        let index = related_index(vec![
+            with_tags(doc("p.md", "P", "2025-01-01"), &["rust"]),
+            with_tags(doc("a.md", "A", "2025-03-01"), &["rust"]), // newest
+            with_tags(doc("b.md", "B", "2025-02-01"), &["rust"]),
+            with_tags(doc("c.md", "C", "2025-02-01"), &["rust"]), // same date as b
+        ]);
+        let results = index.related(Path::new("p.md"), &weights(&[("tags", 1.0)]));
+        assert_eq!(titles(&results), vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn related_limit_truncates_and_absent_returns_all() {
+        let index = related_index(vec![
+            with_tags(doc("p.md", "P", "2025-01-01"), &["rust"]),
+            with_tags(doc("a.md", "A", "2025-03-01"), &["rust"]),
+            with_tags(doc("b.md", "B", "2025-02-01"), &["rust"]),
+        ]);
+        let all = index.related(Path::new("p.md"), &weights(&[("tags", 1.0)]));
+        assert_eq!(all.len(), 2);
+
+        let limited = index.related(
+            Path::new("p.md"),
+            &Related {
+                limit: Some(1),
+                ..weights(&[("tags", 1.0)])
+            },
+        );
+        assert_eq!(titles(&limited), vec!["A"]);
+    }
+
+    #[test]
+    fn related_omit_excludes_docs() {
+        let index = related_index(vec![
+            with_tags(doc("p.md", "P", "2025-01-01"), &["rust"]),
+            with_tags(doc("a.md", "A", "2025-03-01"), &["rust"]),
+            with_tags(doc("b.md", "B", "2025-02-01"), &["rust"]),
+        ]);
+        let results = index.related(
+            Path::new("p.md"),
+            &Related {
+                omit: vec![PathBuf::from("a.md")],
+                ..weights(&[("tags", 1.0)])
+            },
+        );
+        assert_eq!(titles(&results), vec!["B"]);
+    }
+
+    #[test]
+    fn related_empty_doc_relates_to_nothing() {
+        let index = related_index(vec![
+            doc("p.md", "P", "2025-01-01"),
+            with_tags(doc("a.md", "A", "2025-01-02"), &["rust"]),
+        ]);
+        let results = index.related(Path::new("p.md"), &weights(&[("tags", 1.0), (LINKS, 1.0)]));
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn related_unknown_post_is_empty() {
+        let index = related_index(vec![with_tags(doc("p.md", "P", "2025-01-01"), &["rust"])]);
+        let results = index.related(Path::new("missing.md"), &weights(&[("tags", 1.0)]));
+        assert!(results.is_empty());
     }
 }

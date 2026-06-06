@@ -1,4 +1,5 @@
 use crate::query::Query;
+use crate::related::{LINKS, Related};
 use crate::taxonomy;
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -64,6 +65,14 @@ pub struct Config {
     /// `taxonomy → term → docs`.
     #[serde(skip)]
     pub taxonomies: Vec<String>,
+    /// Options for the `related` template filter, from the `related:` key:
+    /// per-namespace `weights` and a default `limit`. When the block (or its
+    /// `weights`) is absent, [`load_with_theme`](Self::load_with_theme) fills in
+    /// equal weight on every declared taxonomy plus the `links` graph, so the
+    /// filter works zero-config (relating by `links`, and by `tags` once `tags`
+    /// is declared). See [`Related`].
+    #[serde(skip)]
+    pub related: Related,
 }
 
 impl Default for Config {
@@ -82,6 +91,7 @@ impl Default for Config {
             defaults: Vec::new(),
             collections: Vec::new(),
             taxonomies: Vec::new(),
+            related: Related::default(),
         }
     }
 }
@@ -110,6 +120,11 @@ impl Config {
         // theme declares, so the check runs against the merged collection set.
         validate_defaults(&config.defaults, &config.collections)
             .with_context(|| format!("validating `defaults` in {}", path.display()))?;
+        // Fill in default `related` weights against the final (merged) taxonomy
+        // set: equal weight on every declared taxonomy plus the `links` graph.
+        if config.related.weights.is_empty() {
+            config.related.weights = default_related_weights(&config.taxonomies);
+        }
         // Derive the URL fields once, from the final (possibly theme-merged) map.
         config.site_url = site
             .get(Value::String("url".into()))
@@ -139,7 +154,7 @@ impl Config {
             .with_context(|| format!("parsing {} into Config", path.display()))?;
         let raw: Value = serde_yaml_ng::from_str(&source)
             .with_context(|| format!("parsing {} as YAML", path.display()))?;
-        let (site, defaults_map, collections_map, taxonomies_map) = match raw {
+        let (site, defaults_map, collections_map, taxonomies_map, related_map) = match raw {
             Value::Mapping(mut m) => {
                 let site = match m.remove(Value::String("site".into())) {
                     Some(Value::Mapping(s)) => s,
@@ -157,9 +172,13 @@ impl Config {
                     Some(Value::Sequence(t)) => Some(t),
                     _ => None,
                 };
-                (site, defaults, collections, taxonomies)
+                let related = match m.remove(Value::String("related".into())) {
+                    Some(Value::Mapping(r)) => Some(r),
+                    _ => None,
+                };
+                (site, defaults, collections, taxonomies, related)
             }
-            _ => (Mapping::new(), None, None, None),
+            _ => (Mapping::new(), None, None, None, None),
         };
         if let Some(map) = collections_map {
             config.collections = parse_collections(&map)
@@ -172,6 +191,10 @@ impl Config {
         // Parse the declared taxonomies (an absent block yields none).
         config.taxonomies = taxonomy::parse(taxonomies_map.as_ref())
             .with_context(|| format!("parsing `taxonomies` in {}", path.display()))?;
+        if let Some(map) = related_map {
+            config.related = parse_related(&map)
+                .with_context(|| format!("parsing `related` in {}", path.display()))?;
+        }
         Ok((config, site))
     }
 
@@ -201,6 +224,15 @@ impl Config {
         self.taxonomies = taxonomies;
         // A theme may enable the hashtag pass; the site can also enable it.
         self.hashtags = self.hashtags || theme.hashtags;
+        // `related`: the site wins wholesale when it sets weights; otherwise it
+        // inherits the theme's weights/limit. Defaults (when both are silent) are
+        // synthesized later in `load_with_theme` from the merged taxonomy set.
+        if self.related.weights.is_empty() {
+            self.related.weights = theme.related.weights;
+        }
+        if self.related.limit.is_none() {
+            self.related.limit = theme.related.limit;
+        }
         // `site:` map: theme as base, site overrides (deep). The caller
         // (`load_with_theme`) derives `site_url`/`base_path` from the merged map.
         let mut merged = theme_site;
@@ -339,6 +371,66 @@ fn parse_collections(map: &Mapping) -> Result<Vec<(String, Query)>> {
         collections.push((name.to_string(), query));
     }
     Ok(collections)
+}
+
+/// Parse the `related:` mapping into [`Related`] options: a `weights:` sub-map
+/// of `namespace -> weight` (a taxonomy name, or `links` for the link graph),
+/// preserving `config.yaml` order, plus an optional `limit:`. Unknown top-level
+/// keys are rejected so typos fail loudly. An empty/absent `weights` is left
+/// empty here; [`Config::load_with_theme`] fills the default set once the
+/// taxonomy list is final.
+fn parse_related(map: &Mapping) -> Result<Related> {
+    for key in map.keys() {
+        match key.as_str() {
+            Some("weights") | Some("limit") => {}
+            other => {
+                return Err(anyhow::anyhow!(
+                    "related: unknown key `{}` (allowed: weights, limit)",
+                    other.unwrap_or("<non-string>")
+                ));
+            }
+        }
+    }
+
+    let mut weights = Vec::new();
+    if let Some(value) = map.get(Value::String("weights".into())) {
+        let weights_map = value
+            .as_mapping()
+            .ok_or_else(|| anyhow::anyhow!("related: `weights` must be a mapping"))?;
+        for (key, value) in weights_map {
+            let name = key
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("related: weight names must be strings"))?;
+            let weight = value.as_f64().ok_or_else(|| {
+                anyhow::anyhow!("related: weight for `{}` must be a number", name)
+            })?;
+            weights.push((name.to_string(), weight));
+        }
+    }
+
+    let limit = match map.get(Value::String("limit".into())) {
+        Some(v) => Some(
+            v.as_u64()
+                .ok_or_else(|| anyhow::anyhow!("related: `limit` must be a non-negative integer"))?
+                as usize,
+        ),
+        None => None,
+    };
+
+    Ok(Related {
+        weights,
+        omit: Vec::new(),
+        limit,
+    })
+}
+
+/// The zero-config `related` weighting: equal weight `1.0` on every declared
+/// taxonomy plus the `links` graph. So a site with no `related:` block still
+/// relates by `links`, and by `tags` (etc.) for whatever taxonomies it declares.
+fn default_related_weights(taxonomies: &[String]) -> Vec<(String, f64)> {
+    let mut weights: Vec<(String, f64)> = taxonomies.iter().map(|t| (t.clone(), 1.0)).collect();
+    weights.push((LINKS.to_string(), 1.0));
+    weights
 }
 
 /// Parse the `defaults:` mapping into `(collection name, default frontmatter)`
@@ -575,6 +667,70 @@ mod tests {
         let path = Path::new("/definitely/does/not/exist/config.yaml");
         let (config, _) = Config::load_with_theme(path).unwrap();
         assert!(config.taxonomies.is_empty());
+    }
+
+    #[test]
+    fn related_block_is_parsed() {
+        let dir = tempdir("config");
+        let path = write_config(
+            &dir,
+            "taxonomies:\n  - tags\nrelated:\n  weights:\n    tags: 3.0\n    links: 2.0\n  limit: 5\n",
+        );
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(
+            config.related.weights,
+            vec![("tags".to_string(), 3.0), ("links".to_string(), 2.0)]
+        );
+        assert_eq!(config.related.limit, Some(5));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn related_absent_defaults_to_declared_taxonomies_plus_links() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "taxonomies:\n  - tags\n  - categories\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        // Equal weight on each declared taxonomy plus the `links` graph.
+        assert_eq!(
+            config.related.weights,
+            vec![
+                ("tags".to_string(), 1.0),
+                ("categories".to_string(), 1.0),
+                ("links".to_string(), 1.0),
+            ]
+        );
+        assert!(config.related.limit.is_none());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn related_with_no_taxonomies_defaults_to_links_only() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.related.weights, vec![("links".to_string(), 1.0)]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn related_limit_without_weights_still_gets_default_weights() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "taxonomies:\n  - tags\nrelated:\n  limit: 3\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.related.limit, Some(3));
+        assert_eq!(
+            config.related.weights,
+            vec![("tags".to_string(), 1.0), ("links".to_string(), 1.0)]
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn related_unknown_key_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "related:\n  wieghts:\n    tags: 1.0\n");
+        assert!(Config::load_with_theme(&path).is_err());
+        cleanup(&dir);
     }
 
     #[test]

@@ -191,6 +191,11 @@ fn backlinks() {
 }
 
 #[test]
+fn related() {
+    run_build("19_related");
+}
+
+#[test]
 fn macros() {
     run_build("11_macros");
 }
