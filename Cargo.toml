@@ -19,7 +19,6 @@ exclude = [
     "docs/",
     ".github/",
     ".claude/",
-    "tests/",
 ]
 
 [dependencies]
