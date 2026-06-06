@@ -1,6 +1,6 @@
-//! Tera adapter for the `related` filter. Starts from the site's configured
-//! [`Related`] weights, layers the call's `limit`/`omit` kwargs on top, forwards
-//! into [`DocIndex::related`], and serializes the ranked docs.
+//! Tera adapter for the `related` filter. Takes the site's configured
+//! [`Related`] weights, adds the call's `limit`/`omit` kwargs, forwards into
+//! [`DocIndex::related`], and serializes the ranked docs.
 
 use crate::doc_index::DocIndex;
 use crate::related::Related;
@@ -14,9 +14,9 @@ const KNOWN_KEYS: &[&str] = &["limit", "omit"];
 /// Register `related` as a Tera filter on `env`. Usage:
 /// `{% for doc in page.id_path | related(limit=5) %}`. The piped value is the
 /// query doc's `id_path`; returns the docs most related to it, ranked best
-/// first, using the configured per-namespace `weights`. `limit`/`omit` kwargs
-/// override the configured defaults per call. Template-env only — spec §11
-/// forbids index-listing filters in the markup env. Reads the shared [`DocIndex`].
+/// first, using the configured per-namespace `weights`. `limit` and `omit` are
+/// per-call kwargs (not config). Template-env only — spec §11 forbids
+/// index-listing filters in the markup env. Reads the shared [`DocIndex`].
 pub fn register(env: &mut Tera, index: Arc<DocIndex>, config: Related) {
     env.register_filter(
         "related",
@@ -33,7 +33,7 @@ pub fn register(env: &mut Tera, index: Arc<DocIndex>, config: Related) {
 }
 
 /// Build the per-call [`Related`] from the configured base plus kwargs. Weights
-/// always come from config; `limit` and `omit` are overridable per call.
+/// come from config; `limit` and `omit` come from the call.
 fn from_kwargs(config: &Related, args: &HashMap<String, Value>) -> tera::Result<Related> {
     for key in args.keys() {
         if !KNOWN_KEYS.contains(&key.as_str()) {
@@ -76,11 +76,11 @@ mod tests {
     use super::*;
     use crate::related::LINKS;
 
+    // The configured base: weights only. `limit`/`omit` arrive as call kwargs.
     fn base() -> Related {
         Related {
             weights: vec![("tags".to_string(), 1.0), (LINKS.to_string(), 1.0)],
-            omit: Vec::new(),
-            limit: Some(5),
+            ..Default::default()
         }
     }
 
@@ -89,15 +89,16 @@ mod tests {
     }
 
     #[test]
-    fn from_kwargs_empty_keeps_config() {
+    fn from_kwargs_empty_keeps_config_weights_and_no_limit() {
         let opts = from_kwargs(&base(), &HashMap::new()).unwrap();
         assert_eq!(opts.weights.len(), 2);
-        assert_eq!(opts.limit, Some(5));
+        // No config limit; without a kwarg the result is unlimited.
+        assert!(opts.limit.is_none());
         assert!(opts.omit.is_empty());
     }
 
     #[test]
-    fn from_kwargs_limit_overrides_config() {
+    fn from_kwargs_limit_comes_from_kwarg() {
         let mut args = HashMap::new();
         args.insert("limit".to_string(), Value::from(2u64));
         let opts = from_kwargs(&base(), &args).unwrap();

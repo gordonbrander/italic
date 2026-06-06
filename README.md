@@ -178,7 +178,6 @@ related:
   weights:
     tags: 2.0
     links: 1.0
-  limit: 5
 
 # Add default frontmatter to collections
 # Defaults can be overridden on a per-page basis
@@ -355,16 +354,16 @@ related:
     tags: 2.0      # a taxonomy: shared tags
     series: 1.0    # any declared taxonomy can be weighted
     links: 1.0     # the whole link graph (both directions; see above)
-  limit: 5         # default number of results (optional)
 ```
 
-Both keys are optional. With no `related:` block, every declared taxonomy and
-the `links` graph get equal weight — so it works zero-config, relating by
-`links`, and by `tags` (and any other taxonomy) once you declare it. A page is
-never related to itself, and results are ranked best-match first.
+`weights` is the only key — the whole `related:` block is optional. With no
+block, every declared taxonomy and the `links` graph get equal weight, so it
+works zero-config: relating by `links`, and by `tags` (and any other taxonomy)
+once you declare it. A page is never related to itself, and results are ranked
+best-match first.
 
 Read the related pages in a template with the [`related`](#related--pages-related-to-this-page)
-filter.
+filter, which is also where you cap the number of results (`limit`).
 
 ## Templates
 
@@ -475,10 +474,10 @@ weights configured under [`related:`](#related-pages) in `config.yaml`:
 {% endfor %}
 ```
 
-Kwargs: `limit` (max items) and `omit` (array of `id_path` strings to exclude),
-both overriding the config defaults for this call. The page is always excluded
-from its own results; ties break by `date` desc then `id_path`. The per-namespace
-`weights` come from config, not kwargs.
+Kwargs: `limit` (max items, default unlimited) and `omit` (array of `id_path`
+strings to exclude) — both set per call, not in config. The page is always
+excluded from its own results; ties break by `date` desc then `id_path`. The
+per-namespace `weights` come from config, not kwargs.
 
 Available in: template phase.
 

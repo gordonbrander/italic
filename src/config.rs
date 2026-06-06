@@ -65,12 +65,13 @@ pub struct Config {
     /// `taxonomy → term → docs`.
     #[serde(skip)]
     pub taxonomies: Vec<String>,
-    /// Options for the `related` template filter, from the `related:` key:
-    /// per-namespace `weights` and a default `limit`. When the block (or its
-    /// `weights`) is absent, [`load_with_theme`](Self::load_with_theme) fills in
-    /// equal weight on every declared taxonomy plus the `links` graph, so the
-    /// filter works zero-config (relating by `links`, and by `tags` once `tags`
-    /// is declared). See [`Related`].
+    /// Weights for the `related` template filter, from the `related:` key's
+    /// `weights:` sub-map (per-namespace). `limit`/`omit` are not config — they
+    /// are filter arguments — so only `weights` is populated here. When the block
+    /// (or its `weights`) is absent, [`load_with_theme`](Self::load_with_theme)
+    /// fills in equal weight on every declared taxonomy plus the `links` graph,
+    /// so the filter works zero-config (relating by `links`, and by `tags` once
+    /// `tags` is declared). See [`Related`].
     #[serde(skip)]
     pub related: Related,
 }
@@ -225,13 +226,10 @@ impl Config {
         // A theme may enable the hashtag pass; the site can also enable it.
         self.hashtags = self.hashtags || theme.hashtags;
         // `related`: the site wins wholesale when it sets weights; otherwise it
-        // inherits the theme's weights/limit. Defaults (when both are silent) are
-        // synthesized later in `load_with_theme` from the merged taxonomy set.
+        // inherits the theme's. Defaults (when both are silent) are synthesized
+        // later in `load_with_theme` from the merged taxonomy set.
         if self.related.weights.is_empty() {
             self.related.weights = theme.related.weights;
-        }
-        if self.related.limit.is_none() {
-            self.related.limit = theme.related.limit;
         }
         // `site:` map: theme as base, site overrides (deep). The caller
         // (`load_with_theme`) derives `site_url`/`base_path` from the merged map.
@@ -373,19 +371,29 @@ fn parse_collections(map: &Mapping) -> Result<Vec<(String, Query)>> {
     Ok(collections)
 }
 
-/// Parse the `related:` mapping into [`Related`] options: a `weights:` sub-map
-/// of `namespace -> weight` (a taxonomy name, or `links` for the link graph),
-/// preserving `config.yaml` order, plus an optional `limit:`. Unknown top-level
-/// keys are rejected so typos fail loudly. An empty/absent `weights` is left
-/// empty here; [`Config::load_with_theme`] fills the default set once the
+/// Parse the `related:` mapping into [`Related`] options: just a `weights:`
+/// sub-map of `namespace -> weight` (a taxonomy name, or `links` for the link
+/// graph), preserving `config.yaml` order. `limit` and `omit` are *not* config —
+/// they are per-call arguments of the `related()` filter — so the parsed
+/// `Related` carries only weights and leaves those at their defaults. Unknown
+/// top-level keys are rejected so typos fail loudly. An empty/absent `weights`
+/// is left empty here; [`Config::load_with_theme`] fills the default set once the
 /// taxonomy list is final.
 fn parse_related(map: &Mapping) -> Result<Related> {
     for key in map.keys() {
         match key.as_str() {
-            Some("weights") | Some("limit") => {}
+            Some("weights") => {}
+            // `limit` used to live here; it is now a filter argument. Fail with a
+            // pointer rather than silently ignoring a stale config.
+            Some("limit") => {
+                return Err(anyhow::anyhow!(
+                    "related: `limit` is no longer a config key — pass it to the \
+                     filter instead, e.g. `page.id_path | related(limit=5)`"
+                ));
+            }
             other => {
                 return Err(anyhow::anyhow!(
-                    "related: unknown key `{}` (allowed: weights, limit)",
+                    "related: unknown key `{}` (allowed: weights)",
                     other.unwrap_or("<non-string>")
                 ));
             }
@@ -408,19 +416,9 @@ fn parse_related(map: &Mapping) -> Result<Related> {
         }
     }
 
-    let limit = match map.get(Value::String("limit".into())) {
-        Some(v) => Some(
-            v.as_u64()
-                .ok_or_else(|| anyhow::anyhow!("related: `limit` must be a non-negative integer"))?
-                as usize,
-        ),
-        None => None,
-    };
-
     Ok(Related {
         weights,
-        omit: Vec::new(),
-        limit,
+        ..Related::default()
     })
 }
 
@@ -674,14 +672,13 @@ mod tests {
         let dir = tempdir("config");
         let path = write_config(
             &dir,
-            "taxonomies:\n  - tags\nrelated:\n  weights:\n    tags: 3.0\n    links: 2.0\n  limit: 5\n",
+            "taxonomies:\n  - tags\nrelated:\n  weights:\n    tags: 3.0\n    links: 2.0\n",
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
         assert_eq!(
             config.related.weights,
             vec![("tags".to_string(), 3.0), ("links".to_string(), 2.0)]
         );
-        assert_eq!(config.related.limit, Some(5));
         cleanup(&dir);
     }
 
@@ -699,7 +696,6 @@ mod tests {
                 ("links".to_string(), 1.0),
             ]
         );
-        assert!(config.related.limit.is_none());
         cleanup(&dir);
     }
 
@@ -713,15 +709,12 @@ mod tests {
     }
 
     #[test]
-    fn related_limit_without_weights_still_gets_default_weights() {
+    fn related_limit_in_config_errors() {
+        // `limit` moved to the filter; leaving it in config fails with a pointer.
         let dir = tempdir("config");
-        let path = write_config(&dir, "taxonomies:\n  - tags\nrelated:\n  limit: 3\n");
-        let (config, _) = Config::load_with_theme(&path).unwrap();
-        assert_eq!(config.related.limit, Some(3));
-        assert_eq!(
-            config.related.weights,
-            vec![("tags".to_string(), 1.0), ("links".to_string(), 1.0)]
-        );
+        let path = write_config(&dir, "related:\n  weights:\n    tags: 1.0\n  limit: 5\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(err.contains("limit"), "error should mention limit: {err}");
         cleanup(&dir);
     }
 
