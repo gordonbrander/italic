@@ -5,9 +5,9 @@ use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
 /// Scan `content_dir` into a [`DocIndex`]. When `include_drafts` is false (the
-/// production `mug build` default), docs whose frontmatter sets `draft: true`
+/// production `italic build` default), docs whose frontmatter sets `draft: true`
 /// are skipped entirely, so they never reach collections, taxonomies, or
-/// backlinks. Local `serve`/`watch` and `mug build --drafts` pass `true`.
+/// backlinks. Local `serve`/`watch` and `italic build --drafts` pass `true`.
 pub fn run(config: &Config, include_drafts: bool) -> Result<DocIndex> {
     let mut index = DocIndex::new();
     if !config.content_dir.exists() {

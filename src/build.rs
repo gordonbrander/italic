@@ -4,7 +4,7 @@
 //!
 //! 1. [`read`] — scan `content/` into a [`DocIndex`](crate::doc_index::DocIndex).
 //!    Docs with `draft: true` frontmatter are dropped here unless `include_drafts`
-//!    (local `serve`/`watch`, or `mug build --drafts`), so they stay out of every
+//!    (local `serve`/`watch`, or `italic build --drafts`), so they stay out of every
 //!    later stage.
 //! 2. [`classify::collections`] — evaluate collection membership (frontmatter
 //!    only; pre-markup so defaults can fill members).

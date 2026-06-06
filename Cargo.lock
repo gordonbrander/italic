@@ -894,6 +894,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "italic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "clap",
+ "comrak",
+ "globset",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "insta",
+ "notify-debouncer-mini",
+ "rayon",
+ "serde",
+ "serde_yaml_ng",
+ "slug",
+ "tera",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tower-http",
+ "walkdir",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1032,33 +1059,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mug"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "clap",
- "comrak",
- "globset",
- "http-body-util",
- "hyper",
- "hyper-util",
- "insta",
- "notify-debouncer-mini",
- "rayon",
- "serde",
- "serde_yaml_ng",
- "slug",
- "tera",
- "tokio",
- "tokio-stream",
- "tower",
- "tower-http",
- "walkdir",
 ]
 
 [[package]]

@@ -116,7 +116,7 @@ Tags come from the frontmatter `tags:` sequence. Optionally — when
 `hashtags: true` is set in `config.yaml` — the markup phase also scans Markdown
 bodies for inline `#hashtag`s, adds them to `tags`, and **strips them from the
 rendered output**. A hashtag is a `#` at a word boundary (start of text or after
-whitespace) followed by `[A-Za-z0-9_-/]` (so slug paths like `#project/mug`
+whitespace) followed by `[A-Za-z0-9_-/]` (so slug paths like `#project/italic`
 work) containing at least one letter (so `#123` is ignored). Because scanning
 runs on the parsed Markdown AST, heading markers (`# Heading`) and code
 spans/fences are never mistaken for tags. Frontmatter text wins on a slug

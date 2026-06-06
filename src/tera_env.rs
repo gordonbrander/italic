@@ -67,7 +67,7 @@ pub struct MarkupEnv {
 /// macros, the wikilink rewrite, and author inline HTML all rely on it — same
 /// trust model as the previous pulldown-cmark `html` feature). GFM extensions
 /// are on, plus the wikilink extension whose `[[url|label]]` order matches
-/// Mug's `[[Target|Display]]`.
+/// Italic's `[[Target|Display]]`.
 fn markup_options() -> comrak::Options<'static> {
     let mut options = comrak::Options::default();
     options.render.r#unsafe = true;
@@ -615,7 +615,7 @@ mod tests {
     impl TempTemplatesDir {
         fn new(name: &str) -> Self {
             let dir = std::env::temp_dir().join(format!(
-                "mug-tera_env-test-{}-{}",
+                "italic-tera_env-test-{}-{}",
                 name,
                 std::process::id()
             ));
@@ -708,7 +708,7 @@ mod tests {
     impl TempOverlay {
         fn new(name: &str) -> Self {
             let dir = std::env::temp_dir().join(format!(
-                "mug-tera_env-overlay-{}-{}",
+                "italic-tera_env-overlay-{}-{}",
                 name,
                 std::process::id()
             ));
