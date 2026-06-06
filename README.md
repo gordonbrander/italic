@@ -1,6 +1,6 @@
-# mug
+# italic
 
-Mug is a site-generator written in Rust. Its goals are:
+Italic is a site-generator written in Rust. Its goals are:
 
 - Practical: Works out-of-the-box with zero config. One binary with everything you need.
 - Flexible: supports blogs, websites, and [digital gardens](https://maggieappleton.com/garden-history).
@@ -8,7 +8,7 @@ Mug is a site-generator written in Rust. Its goals are:
 
 ## Features
 
-Mug has everything you need for publishing blogs, websites, and [Digital gardens](https://maggieappleton.com/garden-history)...
+Italic has everything you need for publishing blogs, websites, and [Digital gardens](https://maggieappleton.com/garden-history)...
 
 - Blogs: Create any number of blogs or newsfeeds on the same site.
 - Custom collections: A poweful query system lets you collect pages into any grouping you want.
@@ -33,19 +33,19 @@ From a clone of this repo:
 cargo install --path .
 ```
 
-This puts `mug` on your `PATH` (typically `~/.cargo/bin/mug`).
+This puts `italic` on your `PATH` (typically `~/.cargo/bin/italic`).
 
 ## Quick start
 
-`mug new` scaffolds a starter **digital garden**: a handful of interlinked notes
+`italic new` scaffolds a starter **digital garden**: a handful of interlinked notes
 and the bundled [`obsidian` theme](#themes), which supplies the layouts, styles,
 backlinks, and a sitemap. Open any note to see its backlinks; edit
 the theme under `themes/obsidian/`, or swap it out for your own templates.
 
 ```sh
-mug new my-site
+italic new my-site
 cd my-site
-mug serve       # Start a dev server, automatically rebuild on change
+italic serve       # Start a dev server, automatically rebuild on change
 ```
 
 ## Project layout
@@ -60,14 +60,14 @@ themes/         # Bundled themes (e.g. the `obsidian` digital-garden theme)
 config.yaml     # Site config
 ```
 
-Note that Mug doesn't impose a specific layout on your content folder. You can organize
+Note that Italic doesn't impose a specific layout on your content folder. You can organize
 it however you you like, and use custom **collections** to define blogs, sections, and
 other concepts. This flexibility lets you support multiple blogs, news feeds, and
 portals in the same site.
 
 ## Authoring content
 
-Mug supports three kinds of content:
+Italic supports three kinds of content:
 
 | Type    | Frontmatter        | Body                                            |
 |---------|--------------------|-------------------------------------------------|
@@ -118,9 +118,9 @@ Not ready to publish yet.
 
 Drafts are dropped at the start of the build, so they never appear in the
 output — and never show up in collections, taxonomies, or backlinks either, as
-if the file weren't there. They are visible while you work locally: `mug serve`
-and `mug watch` always include drafts. To preview drafts in a one-off build
-(e.g. a staging deploy), pass `mug build --drafts`.
+if the file weren't there. They are visible while you work locally: `italic serve`
+and `italic watch` always include drafts. To preview drafts in a one-off build
+(e.g. a staging deploy), pass `italic build --drafts`.
 
 ### Wikilinks
 
@@ -152,7 +152,7 @@ archives_dir: archives
 site:
   # Anything under `site:` is reachable in templates as `{{ site.x }}`.
   title: My Site
-  description: A site built with mug.
+  description: A site built with italic.
   url: https://example.com   # origin for absolute URLs; no trailing slash
   base_path: ""              # subpath the site is hosted under, e.g. "/blog"
 
@@ -212,7 +212,7 @@ themes/my-theme/
   static/         # static assets
 ```
 
-When a theme is set, Mug layers it underneath your site:
+When a theme is set, Italic layers it underneath your site:
 
 - **Templates and archives** come from the theme. Your site's own `templates/`
   and `archives/` directories are not used — customize the look through config
@@ -305,7 +305,7 @@ wins. Of course, the document's own frontmatter always overrides defaults.
 ## Taxonomies
 
 Taxonomies let you categorize docs. Declare taxonomies as an array of fields
-under `taxonomies:` in `config.yaml`. These fields will be treated as tags by Mug.
+under `taxonomies:` in `config.yaml`. These fields will be treated as tags by Italic.
 
 ```yaml
 # config.yaml
@@ -323,12 +323,12 @@ category: [rust, tools]
 You can define as many taxonomies as you like. This can be a powerful way to organize
 content on complex websites.
 
-When hashtags are turned on (`hashtags: true` in `config.yaml`), Mug will lift inline `#hashtags` into
+When hashtags are turned on (`hashtags: true` in `config.yaml`), Italic will lift inline `#hashtags` into
 the `tags` taxonomy and strip them from the rendered markup.
 
 ## Related pages
 
-Mug can surface the pages most **related** to a given page — the heart of a
+Italic can surface the pages most **related** to a given page — the heart of a
 digital garden. Relatedness is **weighted shared-term overlap**: two pages are
 related in proportion to how much they have in common, across two kinds of
 namespace:
@@ -397,7 +397,7 @@ Example `templates/base.html`:
 ## Template filters and functions
 
 Templates get all the [built-in Tera template filters and functions](https://keats.github.io/tera/docs/#built-ins),
-plus a few extra added by mug...
+plus a few extra added by italic...
 
 ### `collection(...)` — list a named collection
 
@@ -669,7 +669,7 @@ environment. In templates, import them explicitly with `{% import %}`.
 
 ## Content templates
 
-Mug runs an initial Tera template render on content **before** rendering markup
+Italic runs an initial Tera template render on content **before** rendering markup
 and templates. This is what enables macros, and it also means you can use
 Tera partials and other features in your docs:
 
@@ -762,10 +762,10 @@ The scaffold ships a starter RSS archive and a sitemap page that work out of the
 
 | Command                | Purpose                                          |
 |------------------------|--------------------------------------------------|
-| `mug build`          | Run the full pipeline once into `output_dir`. Excludes drafts; pass `--drafts` to include them. |
-| `mug watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). Includes drafts. |
-| `mug new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
-| `mug clean`          | Remove `output_dir` (default `public`).          |
+| `italic build`          | Run the full pipeline once into `output_dir`. Excludes drafts; pass `--drafts` to include them. |
+| `italic watch`          | Rebuild on every change to a source dir or `config.yaml` (~150 ms debounce). Includes drafts. |
+| `italic new <path>`     | Scaffold a starter site at `<path>` (must not exist). |
+| `italic clean`          | Remove `output_dir` (default `public`).          |
 
 Behavioral configuration lives in files, not flags — the one exception is
-`mug build --drafts`, which force-includes [drafts](#drafts) in a build.
+`italic build --drafts`, which force-includes [drafts](#drafts) in a build.

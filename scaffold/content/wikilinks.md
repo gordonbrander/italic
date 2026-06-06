@@ -2,7 +2,7 @@
 title: Wikilinks
 ---
 Link to another note by writing its title in double brackets: `[[Backlinks]]`.
-mug resolves the link by matching the title against your notes, the same way
+italic resolves the link by matching the title against your notes, the same way
 Obsidian does. Give the link different display text with a pipe:
 `[[Backlinks|see what links here]]`.
 

@@ -48,7 +48,7 @@ fn run_build(fixture: &str) {
     let fixture_dir = manifest_dir.join("tests").join("fixtures").join(fixture);
     let expected_dir = fixture_dir.join("expected");
 
-    let temp_root = std::env::temp_dir().join(format!("mug-test-{}", fixture));
+    let temp_root = std::env::temp_dir().join(format!("italic-test-{}", fixture));
     let _ = fs::remove_dir_all(&temp_root);
     fs::create_dir_all(&temp_root).unwrap();
 
@@ -67,7 +67,7 @@ fn run_build(fixture: &str) {
 
     let prev_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(&temp_root).unwrap();
-    let build_result = mug::build(false);
+    let build_result = italic::build(false);
     std::env::set_current_dir(&prev_cwd).unwrap();
 
     build_result.unwrap();
@@ -239,7 +239,7 @@ fn collection_self_exclude() {
 fn scaffold() {
     // The 12_scaffold fixture has no input files — just an `expected/` dir.
     // The test exercises the real scaffold code path: scaffold into a temp dir
-    // via `mug::new`, then build, then diff against `expected/`.
+    // via `italic::new`, then build, then diff against `expected/`.
     let _guard = CHDIR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixture_dir = manifest_dir
@@ -248,16 +248,16 @@ fn scaffold() {
         .join("12_scaffold");
     let expected_dir = fixture_dir.join("expected");
 
-    let temp_root = std::env::temp_dir().join("mug-test-12_scaffold");
+    let temp_root = std::env::temp_dir().join("italic-test-12_scaffold");
     let _ = fs::remove_dir_all(&temp_root);
     fs::create_dir_all(&temp_root).unwrap();
 
     let demo = temp_root.join("demo");
-    mug::new(&demo).unwrap();
+    italic::new(&demo).unwrap();
 
     let prev_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(&demo).unwrap();
-    let build_result = mug::build(false);
+    let build_result = italic::build(false);
     std::env::set_current_dir(&prev_cwd).unwrap();
     build_result.unwrap();
 

@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "mug", about = "A zero-config static site generator")]
+#[command(name = "italic", about = "A zero-config static site generator")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -41,10 +41,10 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Build { drafts } => mug::build(drafts),
-        Command::Watch => mug::watch(),
-        Command::Serve { port, host } => mug::serve(host, port),
-        Command::New { path } => mug::new(&path),
-        Command::Clean => mug::clean(),
+        Command::Build { drafts } => italic::build(drafts),
+        Command::Watch => italic::watch(),
+        Command::Serve { port, host } => italic::serve(host, port),
+        Command::New { path } => italic::new(&path),
+        Command::Clean => italic::clean(),
     }
 }

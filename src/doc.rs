@@ -17,7 +17,7 @@ pub struct Doc {
     pub summary: String,
     /// True when frontmatter sets `draft: true`. Drafts are dropped at the read
     /// phase unless drafts are being included (local `serve`/`watch`, or
-    /// `mug build --drafts`), so a kept doc's `draft` reflects its own
+    /// `italic build --drafts`), so a kept doc's `draft` reflects its own
     /// frontmatter only. Serialized for templates as `page.draft`.
     pub draft: bool,
     pub content: String,

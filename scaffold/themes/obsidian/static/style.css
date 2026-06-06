@@ -1,4 +1,4 @@
-/* Obsidian theme for mug.
+/* Obsidian theme for italic.
  *
  * Content typography ported from Kepano's Minimal theme for Obsidian
  * (https://github.com/kepano/obsidian-minimal). Colors follow Minimal's
@@ -162,7 +162,7 @@ a:hover {
   text-decoration: underline;
 }
 
-/* Unresolved wikilinks: mug renders [[Missing]] as <span class="nolink">. */
+/* Unresolved wikilinks: italic renders [[Missing]] as <span class="nolink">. */
 .nolink {
   color: var(--tx3);
   text-decoration: underline dashed;

@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub fn temp_path(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("mug-{label}-{}-{n}", std::process::id()))
+    std::env::temp_dir().join(format!("italic-{label}-{}-{n}", std::process::id()))
 }
 
 /// Like [`temp_path`], but creates the directory before returning it.

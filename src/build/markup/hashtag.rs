@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn allows_slug_paths() {
-        let (_, tags) = run("see #project/mug");
-        assert_eq!(tags, vec!["project/mug"]);
+        let (_, tags) = run("see #project/italic");
+        assert_eq!(tags, vec!["project/italic"]);
     }
 
     #[test]
