@@ -2,7 +2,7 @@
 name = "italic"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.95"
 authors = ["Gordon Brander"]
 description = "A static site generator for creatives"
 documentation = "https://docs.rs/italic"
