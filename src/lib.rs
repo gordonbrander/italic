@@ -8,6 +8,7 @@ pub mod frontmatter;
 pub mod html;
 pub mod permalink;
 pub mod query;
+pub mod related;
 pub mod site_data;
 pub mod taxonomy;
 pub mod tera_env;

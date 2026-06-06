@@ -17,6 +17,7 @@ Mug has everything you need for publishing blogs, websites, and [Digital gardens
 - Fancy Markdown: Aims to be maximally compatible with GitHub-flavored Markdown and [Obsidian Markdown](https://obsidian.md/help/syntax), so you can easily publish your vault.
 - Wikilinks: smart wikilinks that resolve using the same algorithm as Obsidian.
 - Backlinks: list pages that link to a page.
+- Related pages: surface the pages most related to a page by shared tags and links.
 - Hashtags: auto-appended to tags and stripped from output.
 - Shortcodes: easily create custom shortcodes for video embeds, responsive images, and more.
 - Content templates: Use Tera templates in Markdown.
@@ -169,6 +170,15 @@ taxonomies:
   - tags
   - category
 
+# Tune the related() filter: how much each namespace counts toward relatedness.
+# Keys are taxonomies. `links` is a special key that represents relatedness by
+# wikilink graph (links, backlinks, and co-citations).
+# Default: equal weight on every key.
+related:
+  weights:
+    tags: 2.0
+    links: 1.0
+
 # Add default frontmatter to collections
 # Defaults can be overridden on a per-page basis
 defaults:
@@ -268,8 +278,7 @@ Collection queries can specify:
 - `path`: A glob pattern for matching files in `content/`.
 - `order_by`: The field to sort by. Can be `title`, `date`, or `updated`. Default: `date`.
 - `sort`: The direction of the sort. Can be `asc` or `desc`. Default: `desc`.
-- `limit`: Max number of items in this collection. Defaults to "unlimited".
-- `omit`: a list of documents to exclude (by `id_path`).
+- `omit`: a list of specific documents to exclude (by `id_path`).
 
 ## Defaults
 
@@ -316,6 +325,44 @@ content on complex websites.
 
 When hashtags are turned on (`hashtags: true` in `config.yaml`), Mug will lift inline `#hashtags` into
 the `tags` taxonomy and strip them from the rendered markup.
+
+## Related pages
+
+Mug can surface the pages most **related** to a given page — the heart of a
+digital garden. Relatedness is **weighted shared-term overlap**: two pages are
+related in proportion to how much they have in common, across two kinds of
+namespace:
+
+- **Taxonomies** — pages that share terms (two notes tagged `phenomenology`).
+- **`links`** — the **whole wikilink graph**, in both directions. This is
+  broader than the [`backlinks`](#backlinks--pages-that-link-to-this-one) filter
+  (which is incoming links only): a single symmetric measure relates two pages
+  when **any** of these hold —
+  - one page **links to** the other (an outbound link), *or*
+  - one page is **linked to by** the other (a backlink), *or*
+  - both pages **link to the same third page** (a shared reference).
+
+  Because it's symmetric, if it relates A to B it also relates B to A.
+
+Each namespace carries a `weight` you set under `related:` in `config.yaml`, so
+you can decide whether a shared tag counts for more or less than a shared link:
+
+```yaml
+related:
+  weights:
+    tags: 2.0      # a taxonomy: shared tags
+    series: 1.0    # any declared taxonomy can be weighted
+    links: 1.0     # the whole link graph (both directions; see above)
+```
+
+`weights` is the only key — the whole `related:` block is optional. With no
+block, every declared taxonomy and the `links` graph get equal weight, so it
+works zero-config: relating by `links`, and by `tags` (and any other taxonomy)
+once you declare it. A page is never related to itself, and results are ranked
+best-match first.
+
+Read the related pages in a template with the [`related`](#related--pages-related-to-this-page)
+filter.
 
 ## Templates
 
@@ -366,20 +413,20 @@ collections:
     path: "posts/*.md"
     order_by: date
     sort: desc
-    limit: 10
 ```
 
 ```jinja
-{% for post in collection(name="recent_posts") %}
+{% for post in collection(name="recent_posts", limit=10) %}
   <a href="{{ post.id_path | permalink }}">{{ post.title }}</a>
 {% endfor %}
 ```
 
 Kwargs: `name` (required), plus optional `omit` (array of `id_path` strings to
-exclude) and `limit` (max items). These layer *on top of* the collection's own
-definition-time `omit`/`limit` — the cached result is filtered then truncated,
-with `omit` applied before `limit`. Handy when a page wants to exclude itself
-from a collection it belongs to:
+exclude) and `limit` (max items). `omit` layers *on top of* the collection's own
+definition-time `omit`; `limit` is a render-time cap (a collection has no
+definition-time count — that's deliberately the filter's job). The cached result
+is filtered then truncated, with `omit` applied before `limit`. Handy when a page
+wants to exclude itself from a collection it belongs to:
 
 ```jinja
 {% for post in collection(name="recent_posts", omit=[page.id_path], limit=5) %}
@@ -412,6 +459,24 @@ Kwargs: `order_by` (`title` | `date` | `updated`), `sort` (`asc` | `desc`),
 `omit` (array of `id_path` strings to exclude — e.g. `omit=[page.id_path]` to
 drop a page's self-link from its own backlinks), and `limit` (max items).
 Default is `order_by=date, sort=desc`.
+
+Available in: template phase.
+
+### `related` — pages related to this page
+
+Lists the pages most related to a page, ranked best-match first, using the
+weights configured under [`related:`](#related-pages) in `config.yaml`:
+
+```jinja
+{% for doc in page.id_path | related(limit=5) %}
+  <li><a href="{{ doc.id_path | link }}">{{ doc.title }}</a></li>
+{% endfor %}
+```
+
+Kwargs: `limit` (max items, default unlimited) and `omit` (array of `id_path`
+strings to exclude) — both set per call, not in config. The page is always
+excluded from its own results; ties break by `date` desc then `id_path`. The
+per-namespace `weights` come from config, not kwargs.
 
 Available in: template phase.
 
@@ -466,6 +531,57 @@ recursive macro:
 
 {{ self::tree(nodes=collection(name="posts") | dirtree) }}
 ```
+
+Available in: template phase, content phase.
+
+### `dir(...)` — parent directory of a path
+
+`dir(path="foo/bar/baz.png")` returns the parent directory of a `/`-separated
+path (`foo/bar`). A path with no directory (`baz.png`) yields an empty string.
+Pair it with `filter_in_dir` to derive a directory from a page's `id_path`:
+
+```jinja
+{{ dir(path=page.id_path) }}
+```
+
+Available in: template phase, content phase.
+
+### `filter_in_dir` — keep docs in one directory
+
+`docs | filter_in_dir(dir="...")` keeps only the docs whose `id_path` is an
+*immediate* child of `dir` (nested subdirectories are excluded), sorted by
+`id_path`. Combine it with `dir(...)` to list a page's siblings — the docs that
+share its directory:
+
+```jinja
+{% set siblings = collection(name="all")
+     | filter_in_dir(dir=dir(path=page.id_path), omit=[page.id_path]) %}
+{% for doc in siblings %}
+  <a href="{{ doc.id_path | link }}">{{ doc.title }}</a>
+{% endfor %}
+```
+
+Kwargs: `dir` (required — a literal directory; use `""` for top-level docs) and
+`omit` (array of `id_path` strings to exclude, e.g. `omit=[page.id_path]` to drop
+the page itself). `dir` is not auto-derived from a file path; wrap one with
+`dir(...)`.
+
+Available in: template phase, content phase.
+
+### `omit_docs` — drop docs from a list by `id_path`
+
+`docs | omit_docs(omit=[...])` removes the docs whose `id_path` appears in
+`omit`, preserving the input order. It's the general-purpose complement to the
+`omit` kwarg built into `collection`, `backlinks`, `related`, and
+`filter_in_dir` — reach for it on any list those don't cover (a `dirtree` input,
+a concatenation, or dropping the current page from a hand-built array):
+
+```jinja
+{% set others = collection(name="all") | omit_docs(omit=[page.id_path]) %}
+```
+
+Kwargs: `omit` (required — an array of `id_path` strings; an empty array is a
+passthrough).
 
 Available in: template phase, content phase.
 
@@ -594,6 +710,27 @@ permalink: /tags/:term/
 {% endfor %}
 ```
 
+An archive can also cap how many items it covers with an optional `limit:`,
+useful when an archive references a collection/taxonomy by name and can't pass a
+render-time argument:
+
+```yaml
+---
+kind: collection
+collection: posts
+permalink: /blog/
+limit: 100      # paginate at most the first 100 items…
+per_page: 10    # …10 per page → 10 pages
+---
+```
+
+`limit` and `per_page` are independent and compose: `limit` caps the item set,
+then `per_page` splits that capped set into pages (so `limit: 100, per_page: 10`
+yields 10 pages, not one big page). For a **collection** archive `limit` caps the
+total; for a **taxonomy** archive (one page-set per term) it caps items *per
+term*. "First N" follows the collection's query order, or date-desc for a
+taxonomy.
+
 Pagination context (`pagination.current`, `pagination.total`,
 `pagination.prev_url`, `pagination.next_url`, `pagination.items`) is injected
 automatically. Archives read only the classification of source content (never
@@ -613,4 +750,3 @@ The scaffold ships a starter RSS archive and a sitemap page that work out of the
 
 Behavioral configuration lives in files, not flags — the one exception is
 `mug build --drafts`, which force-includes [drafts](#drafts) in a build.
-

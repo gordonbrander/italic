@@ -1,0 +1,6 @@
+taxonomies:
+  - tags
+related:
+  weights:
+    tags: 1.0
+    links: 1.0

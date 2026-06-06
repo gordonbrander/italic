@@ -181,6 +181,11 @@ fn archives() {
 }
 
 #[test]
+fn archive_limit() {
+    run_build("20_archive_limit");
+}
+
+#[test]
 fn wikilinks() {
     run_build("09_wikilinks");
 }
@@ -188,6 +193,11 @@ fn wikilinks() {
 #[test]
 fn backlinks() {
     run_build("10_backlinks");
+}
+
+#[test]
+fn related() {
+    run_build("19_related");
 }
 
 #[test]
