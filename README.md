@@ -756,11 +756,31 @@ total; for a **taxonomy** archive (one page-set per term) it caps items *per
 term*. "First N" follows the collection's query order, or date-desc for a
 taxonomy.
 
-Pagination context (`pagination.current`, `pagination.total`,
-`pagination.prev_url`, `pagination.next_url`, `pagination.items`) is injected
-automatically. Archives read only the classification of source content (never
-each other's output), so they are order-independent and run in parallel — there
-is no execution-order key.
+A `pagination` context is injected into every archive page automatically:
+
+| Field                  | Meaning                                                    |
+|------------------------|------------------------------------------------------------|
+| `pagination.items`     | The docs on this page                                      |
+| `pagination.current`   | Current page number (1-indexed)                            |
+| `pagination.total`     | Total number of pages                                      |
+| `pagination.prev_url`  | URL of the previous page, or unset on the first page       |
+| `pagination.next_url`  | URL of the next page, or unset on the last page            |
+
+Because `prev_url`/`next_url` are unset (rather than empty) at the ends, you can
+test for them directly to render prev/next navigation that only appears when
+there's somewhere to go:
+
+```html
+<nav class="pagination">
+  {% if pagination.prev_url %}<a href="{{ pagination.prev_url }}">← Previous</a>{% endif %}
+  <span>Page {{ pagination.current }} of {{ pagination.total }}</span>
+  {% if pagination.next_url %}<a href="{{ pagination.next_url }}">Next →</a>{% endif %}
+</nav>
+```
+
+Archives read only the classification of source content (never each other's
+output), so they are order-independent and run in parallel — there is no
+execution-order key.
 
 The scaffold ships a starter RSS archive and a sitemap page that work out of the box.
 
