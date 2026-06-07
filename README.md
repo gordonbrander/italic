@@ -35,27 +35,16 @@ This puts `italic` on your `PATH` (typically `~/.cargo/bin/italic`).
 
 ## Quick start
 
-Scaffold an empty site:
-
 ```sh
 italic new my-site
-```
-
-Let's add a page to our site:
-
-```sh
 cd my-site
 echo '# Heading' > content/index.md
-```
-
-Now let's preview it:
-```sh
 italic serve
 ```
 
-This will serve your website locally at <https://localhost:3000>.
+Congrats! You have a website: <https://localhost:3000>.
 
-Great! But this website is pretty basic. We can add flair by downloading some starter themes:
+However, this website is pretty basic. We can add some custom templates, or we can get off the ground by downloading some starter themes:
 
 ```sh
 git clone --depth 1 https://github.com/gordonbrander/italic_themes.git themes/
@@ -65,12 +54,12 @@ Set a theme by adding the `theme` key to your `config.yaml`:
 
 ```yaml
 # config.yaml
-theme: "themes/italic_themes/obsidian"
+theme: "themes/obsidian"
 ```
 
 If you want, you can run `italic scaffold` to add some demo content for the theme.
 
-Check out your browser. You now have a pretty website! 
+That's it! Have fun building your new website.
 
 ## CLI
 
