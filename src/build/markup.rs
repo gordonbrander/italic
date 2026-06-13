@@ -1,4 +1,5 @@
 pub(crate) mod hashtag;
+pub(crate) mod media;
 pub(crate) mod wikilink;
 
 use crate::config::Config;
@@ -58,6 +59,10 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
         DocKind::Markdown => {
             let arena = comrak::Arena::new();
             let root = comrak::parse_document(&arena, &rendered, &env.options);
+            // Media runs first so it can claim references that point at assets
+            // (`![](x.png)`, `![[x.png]]`, `[[x.pdf]]`), leaving plain note links
+            // for the wikilink pass.
+            media::resolve_in_ast(root, doc, &env.asset_index, &env.base_path);
             doc.links = wikilink::resolve_in_ast(root, doc, &env.stem_index);
             // Inline `#hashtag`s (opt-in): extracted into the built-in `tags`
             // bucket of `doc.terms` and
@@ -101,7 +106,9 @@ pub fn run(config: &Config, site_data: &SiteData, index: &mut DocIndex) -> Resul
     // `template`, so the type system enforces that the markup phase can't
     // read another doc's body or stale markup-phase state.
     let snapshot: Arc<Vec<DocMeta>> = Arc::new(index.to_doc_metas());
-    let env = build_markup_env(config, snapshot.clone())?;
+    let mut env = build_markup_env(config, snapshot.clone())?;
+    // Fill the co-located-media lookup before the env is cloned per worker.
+    env.asset_index = media::AssetIndex::build(index.assets());
     // Each doc renders independently — it mutates only its own fields, while
     // `env` (Tera, comrak options, syntect, stem index) and `site_data` are
     // read-only. `render_str` needs `&mut Tera`, so each Rayon worker gets its

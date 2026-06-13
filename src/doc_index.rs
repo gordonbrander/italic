@@ -36,6 +36,14 @@ pub struct DocIndex {
     /// after markup populates `doc.links`. Lets [`list_backlinks`] answer in O(1)
     /// instead of scanning every doc, and is the candidate source for `related`.
     backlinks: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Co-located media files: `content/`-relative paths of every non-content
+    /// file (anything that isn't `.md`/`.html`/`.yaml`) found during [`read`].
+    /// They are never docs — the markup phase resolves `![](…)`/`![[…]]`
+    /// references against them, and the `content_assets` stage mirrors them into
+    /// the output dir.
+    ///
+    /// [`read`]: crate::build::read
+    assets: Vec<PathBuf>,
 }
 
 impl DocIndex {
@@ -46,6 +54,18 @@ impl DocIndex {
     /// Insert (or replace) a doc, keyed by its `id_path`.
     pub fn insert(&mut self, doc: Doc) {
         self.docs.insert(doc.id_path.clone(), doc);
+    }
+
+    /// Record a co-located media file by its `content/`-relative path.
+    pub fn add_asset(&mut self, path: PathBuf) {
+        self.assets.push(path);
+    }
+
+    /// The co-located media files discovered during [`read`](crate::build::read),
+    /// in directory-walk order. Consumed by the markup phase (reference
+    /// resolution) and the `content_assets` copy stage.
+    pub fn assets(&self) -> &[PathBuf] {
+        &self.assets
     }
 
     // --- iteration ---------------------------------------------------------

@@ -4,7 +4,7 @@ An italic project is a folder of conventional directories plus a `config.yaml`.
 Everything is optional — a bare `content/` directory is a buildable site.
 
 ```
-content/        # Your site content (.md, .html, .yaml)
+content/        # Your site content (.md, .html, .yaml) + co-located media
 archives/       # Archive templates (tag pages, feeds, sitemaps — see Archives)
 templates/      # Tera layouts, partials, and macros
 data/           # YAML files surfaced to templates as {{ data.* }}
@@ -31,11 +31,19 @@ By default, a document's output location mirrors its source path
 (`notes/foo.md` → `notes/foo.html`); [permalinks](../guides/permalinks.md)
 override that per document or per collection.
 
+Non-content files under `content/` (images, PDFs, …) are **co-located media**:
+they're copied to the matching output path, and `![](…)`/`![[…]]`/`[[…]]`
+references to them are resolved automatically — so Obsidian-style attachments
+kept beside your notes just work. See
+[co-located media](../guides/authoring.md#co-located-media-images-and-attachments).
+Use `static/` instead for site-wide assets (CSS, fonts, favicons) that aren't
+tied to a particular note.
+
 ## What each directory feeds
 
 | Directory | Consumed by | Guide |
 |-----------|------------|-------|
-| `content/` | The build pipeline — every `.md`/`.html`/`.yaml` becomes a page | [Authoring](../guides/authoring.md) |
+| `content/` | The build pipeline — every `.md`/`.html`/`.yaml` becomes a page; other files become [co-located media](../guides/authoring.md#co-located-media-images-and-attachments) | [Authoring](../guides/authoring.md) |
 | `templates/` | The template phase; `templates/macros/` auto-imports into content | [Templates](../guides/templates.md) |
 | `archives/` | The archive phase — collection/taxonomy listings, feeds, sitemaps | [Archives](../guides/archives.md) |
 | `data/` | Loaded once, exposed to every template as `{{ data.* }}` | [Data files](../guides/data.md) |

@@ -21,7 +21,10 @@
 //!    entry, appended to the outputs (generated, never classified).
 //! 9. [`write`] — write the outputs to `output_dir`, skipping path collisions
 //!    first-writer-wins (so a real page is never clobbered by an alias stub).
-//! 10. [`static_copy`] — copy `static/` over the top.
+//! 10. [`content_assets`] — mirror co-located media (images/PDFs sitting next to
+//!     notes) from `content/` into `output_dir`.
+//! 11. [`static_copy`] — copy `static/` over the top (overlays content assets on
+//!     a path collision).
 //!
 //! Collections are pure frontmatter metadata, so they classify before markup;
 //! taxonomies depend on the markup-phase hashtag pass, so they classify after.
@@ -32,6 +35,7 @@
 pub mod alias;
 pub mod archive;
 pub mod classify;
+pub mod content_assets;
 pub mod defaults;
 pub mod markup;
 pub mod read;
@@ -77,6 +81,8 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let mut outputs = template::run(&config, &site_data, &index, archive_docs)?;
     outputs.extend(alias::run(&config, &index)?);
     write::run(&config, &outputs)?;
+    // Mirror co-located media, then let static/ overlay it on any path collision.
+    content_assets::run(&config, &index)?;
     static_copy::run(&config)?;
     Ok(())
 }

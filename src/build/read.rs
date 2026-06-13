@@ -24,13 +24,16 @@ pub fn run(config: &Config, include_drafts: bool) -> Result<DocIndex> {
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             continue;
         };
-        if !matches!(ext, "md" | "html" | "yaml") {
-            continue;
-        }
         let id_path = path
             .strip_prefix(&config.content_dir)
             .with_context(|| format!("could not strip prefix from {}", path.display()))?
             .to_path_buf();
+        // Non-content files (images, PDFs, …) are co-located media, not docs:
+        // track them for reference resolution + the `content_assets` copy stage.
+        if !matches!(ext, "md" | "html" | "yaml") {
+            index.add_asset(id_path);
+            continue;
+        }
         let doc = Doc::load(&config.content_dir, &id_path, &config.taxonomies)?;
         if !include_drafts && doc.draft {
             continue;

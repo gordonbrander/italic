@@ -32,7 +32,8 @@ sensible defaults, and needs zero config to do something useful.
   fundamentally at odds with cheap incremental builds; see §11.) The design
   leaves room to add this later but does not pay for it now.
 - **Asset pipeline.** No bundling, minification, or image processing. `static/`
-  is copied verbatim. Fingerprinting/cache-busting is out of scope for v1.
+  and co-located media (§8.1) are copied verbatim. Fingerprinting/cache-busting
+  is out of scope for v1.
 - **Pluggable markup.** Only Markdown and raw HTML. No reStructuredText, no
   AsciiDoc, no alternative renderers.
 - **Embedded scripting / plugins.** Tera macros are the only extension point.
@@ -42,7 +43,7 @@ sensible defaults, and needs zero config to do something useful.
 ## 3. Project Layout
 
 ```
-content/        # Authored documents (.md, .html, .yaml). Render to their own paths.
+content/        # Authored documents (.md, .html, .yaml). Render to their own paths. Other files are co-located media (§8.1).
 archives/       # Templates whose frontmatter declares a kind (collection|taxonomy) → fan out into archive pages.
 templates/      # Tera layouts/partials/macros referenced by documents.
 data/           # YAML files mixed into the global data cascade.
@@ -139,7 +140,9 @@ read -> markup -> generate (+ markup) -> template
 
 Walk `content/`, classify files, parse frontmatter, compute `id_path` and
 `output_path`, and construct `Doc` structs. Bodies are *not* rendered yet.
-Load `data/` into the data cascade. This phase populates the index keys (§7).
+Files that aren't a content type (`.md`/`.html`/`.yaml`) are recorded as
+**co-located media** (§8.1) rather than docs. Load `data/` into the data
+cascade. This phase populates the index keys (§7).
 
 ### Phase 2 — `classify` (collections)
 
@@ -165,7 +168,8 @@ cross-page listing at body-render time.
 Per type:
 
 - **Markdown** — process frontmatter → expand Tera macros → render Tera
-  (restricted) → render Markdown.
+  (restricted) → render Markdown → resolve co-located media references (§8.1)
+  → resolve wikilinks (§8).
 - **HTML** — process frontmatter → render Tera (restricted) → done.
 - **YAML** — render the `content` field through Tera (restricted); the result is
   assumed to be HTML → done.
@@ -280,6 +284,30 @@ Since Wikilink syntax is not part of Markdown, the renderer won't touch it.
 the reverse direction (which pages link *to* this one) is queryable. A
 **`backlinks` filter** exposes this during the template phase, with ordering by
 `title`, `date`, or `updated`.
+
+### 8.1 Co-located media
+
+Files under `content/` that aren't a content type (images, PDFs, …) are
+**co-located media**, recorded during `read` (Phase 1). They are copied to the
+matching path in the output (`content/blog/x.png` → `<output>/blog/x.png`) by a
+copy phase that runs after `write` and before the `static/` copy, so an explicit
+`static/` file overlays a content asset on a path collision.
+
+During markup, a pass running just before wikilink resolution rewrites
+references that point at media — to **root-relative, base-path-aware** URLs, so
+they stay correct regardless of the referencing page's `permalink`:
+
+- **Markdown** `![](image.png)` / `[label](file.pdf)` — the URL is resolved
+  *relative to the source note's directory*; rewritten in place when it lands on
+  a known asset.
+- **Embeds** `![[image.png]]` and **attachment links** `[[report.pdf]]` — matched
+  by **slugified full filename** (extension included) across the whole vault,
+  reusing the wikilink prefix/distance/lexical tiebreak. Embeds of image
+  extensions render `<img>`; everything else renders a download `<a>`.
+
+References that resolve to no asset are left untouched (external URLs,
+root-absolute paths, and relative paths with no matching file), and embed syntax
+resolves media files only — it does not transclude another note's body.
 
 ---
 
