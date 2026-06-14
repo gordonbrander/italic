@@ -6,5 +6,5 @@ related:
     links: 1.0
 
 # Keep this fixture focused: auto-generated sitemap/feed are tested separately.
-sitemap: none
+sitemap:
 feed: []

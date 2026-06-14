@@ -9,5 +9,5 @@ defaults:
     permalink: /blog/:yyyy/:slug/
 
 # Keep this fixture focused: auto-generated sitemap/feed are tested separately.
-sitemap: none
+sitemap:
 feed: []

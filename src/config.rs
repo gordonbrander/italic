@@ -25,7 +25,7 @@ pub enum Sitemap {
     /// Key absent in this config layer.
     #[default]
     Unset,
-    /// `sitemap: none` (or null): no sitemap.
+    /// `sitemap: null` (or an empty `sitemap:`): no sitemap.
     Disabled,
     /// `sitemap: <name>`: cover the named collection.
     Collection(String),
@@ -584,16 +584,15 @@ fn validate_defaults(
     Ok(())
 }
 
-/// Parse the `sitemap:` value: a string names the collection to cover; the string
-/// `none` or a YAML null disables it. Any other type is a loud error (use `none`
-/// to disable, not `false`).
+/// Parse the `sitemap:` value: a string names the collection to cover; a YAML
+/// null (`sitemap:`, `sitemap: null`, or `sitemap: ~`) disables it. Any other
+/// type is a loud error.
 fn parse_sitemap(value: &Value) -> Result<Sitemap> {
     match value {
         Value::Null => Ok(Sitemap::Disabled),
-        Value::String(s) if s == "none" => Ok(Sitemap::Disabled),
         Value::String(s) => Ok(Sitemap::Collection(s.clone())),
         _ => Err(anyhow::anyhow!(
-            "sitemap: must be a collection name, or `none`/null to disable"
+            "sitemap: must be a collection name, or null to disable"
         )),
     }
 }
@@ -1247,8 +1246,10 @@ mod tests {
     }
 
     #[test]
-    fn sitemap_none_or_null_disables() {
-        for body in ["sitemap: none\n", "sitemap:\n"] {
+    fn sitemap_null_disables() {
+        // A real YAML null in any of its spellings disables — no magic `none`
+        // string (which would parse as a collection name and fail validation).
+        for body in ["sitemap:\n", "sitemap: null\n", "sitemap: ~\n"] {
             let dir = tempdir("config");
             let path = write_config(&dir, body);
             let (config, _) = Config::load_with_theme(&path).unwrap();
@@ -1301,7 +1302,7 @@ mod tests {
 
     #[test]
     fn sitemap_non_string_errors() {
-        // `false` is not how you disable — `none`/null is. A bool fails loudly.
+        // `false` is not how you disable — null is. A bool fails loudly.
         let dir = tempdir("config");
         let path = write_config(&dir, "sitemap: true\n");
         assert!(Config::load_with_theme(&path).is_err());
@@ -1338,7 +1339,7 @@ mod tests {
         write_config_in(&theme, "sitemap: all\nfeed:\n  - all\n");
         let path = write_config(
             &dir,
-            &format!("theme: {}\nsitemap: none\nfeed: []\n", theme.display()),
+            &format!("theme: {}\nsitemap: null\nfeed: []\n", theme.display()),
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
         // A site that disables wins over a theme that enabled.

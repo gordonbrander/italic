@@ -28,7 +28,7 @@ defaults: {}      # per-collection default frontmatter
 # related:        # weights for the related filter; defaults derived (see below)
 #   weights: {}
 
-sitemap: all      # collection the auto sitemap covers; `none` to disable
+sitemap: all      # collection the auto sitemap covers; null to disable
 feed:             # one /feed/<name>.xml per collection; `[]` to disable
   - all
 ```
@@ -186,12 +186,12 @@ See the [Related pages guide](../guides/related.md).
 The collection the auto-generated `sitemap.xml` covers. Defaults to the
 always-present [`all` collection](#the-all-collection), so a zero-config site
 still gets a complete sitemap at `/sitemap.xml`. Name another collection to scope
-it, or set `none` (or leave the value empty) to disable.
+it, or set it to null (an empty `sitemap:`) to disable.
 
 ```yaml
 sitemap: all     # default — every doc
 # sitemap: posts # only the `posts` collection
-# sitemap: none  # no sitemap
+# sitemap:       # null — no sitemap
 ```
 
 To customize the markup, add your own `archives/sitemap.xml` — a disk archive of
