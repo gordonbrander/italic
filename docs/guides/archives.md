@@ -119,15 +119,27 @@ renders when there's somewhere to go:
 </nav>
 ```
 
+## Built-in feeds and sitemap
+
+italic generates a sitemap and RSS feeds automatically — you don't have to write
+the archives below unless you want to customize them. By default it emits
+`/sitemap.xml` over every doc and `/feed/all.xml`, configurable with the
+[`sitemap`](../reference/config.md#sitemap) and [`feed`](../reference/config.md#feed)
+config keys (each can name other collections or be disabled). To override the
+built-in markup, drop a disk archive at the same path — `archives/sitemap.xml` or
+`archives/feed/<name>.xml` shadows the built-in. The recipes below are essentially
+those defaults, written out.
+
 ## Recipe: RSS feed
 
-An archive with an `.xml` permalink and no layout. `archives/feed.xml`:
+An archive with an `.xml` permalink and no layout. `archives/feed/posts.xml`
+(shadows the built-in feed for the `posts` collection):
 
 ```yaml
 ---
 kind: collection
 collection: posts
-permalink: /feed.xml
+permalink: /feed/posts.xml
 limit: 20
 ---
 <?xml version="1.0" encoding="utf-8"?>
@@ -150,11 +162,12 @@ limit: 20
 
 ## Recipe: sitemap
 
-For a sitemap covering *everything* (not just one collection), use the built-in
+The built-in sitemap already covers *everything* via the
 [`all` collection](../reference/config.md#the-all-collection) — it always exists
-and holds every doc (date descending). Point an archive at it, or render an
-`all()`-based page — e.g. a `templates/`-rendered doc whose body lists
-`{% for doc in all() %}{{ doc.id_path | permalink }}{% endfor %}`:
+and holds every doc (date descending). To customize the markup, shadow it with
+`archives/sitemap.xml` pointed at `all` (or render an `all()`-based page — e.g. a
+`templates/`-rendered doc whose body lists
+`{% for doc in all() %}{{ doc.id_path | permalink }}{% endfor %}`):
 
 ```yaml
 ---
