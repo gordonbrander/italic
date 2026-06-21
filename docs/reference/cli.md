@@ -1,6 +1,6 @@
 # CLI reference
 
-The `italic` binary has seven subcommands. Run `italic --help` or
+The `italic` binary has the following subcommands. Run `italic --help` or
 `italic <command> --help` for the same information at the terminal.
 
 ## `italic build`

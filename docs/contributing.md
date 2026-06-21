@@ -16,7 +16,7 @@ cargo test
 
 ```
 src/
-  main.rs          # CLI (clap) — the seven subcommands
+  main.rs          # CLI (clap) — the subcommands
   config.rs        # config.yaml parsing, defaults, theme merging
   doc.rs           # the Doc type; frontmatter uplift
   permalink.rs     # permalink patterns, pagination URLs
