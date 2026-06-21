@@ -98,9 +98,10 @@ export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 
 ## The state file
 
-italic records what it published in `.italic/atproto.json`: the publication's
+italic records what it published in `.italic/atproto.yaml`: the publication's
 AT-URI, your account DID, and a per-document map of `id_path → { document, bsky }`
-record keys and CIDs.
+record keys and CIDs. It's plain, human-readable YAML — you can open it to inspect
+what was published, or hand-edit an entry to recover from a mistake.
 
 This file is **load-bearing for correctness**, not just speed:
 
@@ -110,7 +111,7 @@ This file is **load-bearing for correctness**, not just speed:
   *only* thing that stops a re-run from posting the same announcement again.
   Lose the file and you risk re-announcing every post.
 
-So keep `.italic/atproto.json` — commit it to a private repo, or back it up.
+So keep `.italic/atproto.yaml` — commit it to a private repo, or back it up.
 Don't commit it to a public one (it isn't secret, but it's noise). It is written
 incrementally, after each record, so an interrupted run never loses a post it
 already created.

@@ -1,9 +1,12 @@
-//! The publish sidecar state file (`.italic/atproto.json`).
+//! The publish sidecar state file (`.italic/atproto.yaml`).
 //!
 //! This is the crux that makes `publish` different from `build`: build holds no
 //! memory between runs, but publish must. The state remembers which PDS records
 //! map to which docs (keyed by `id_path`) plus the publication record's AT-URI,
 //! so re-running *updates* records via `putRecord` instead of duplicating them.
+//!
+//! It is serialized as YAML so users can read and hand-edit it — to inspect what
+//! was published, fix a bad entry, or recover.
 //!
 //! It is load-bearing for **correctness**, not just efficiency: `app.bsky.feed.post`
 //! records are create-once (server-assigned TID rkeys, treated as immutable by
@@ -18,7 +21,7 @@ use std::fs;
 use std::path::Path;
 
 /// Default location of the state file, relative to the working directory.
-pub const STATE_PATH: &str = ".italic/atproto.json";
+pub const STATE_PATH: &str = ".italic/atproto.yaml";
 
 /// A written record's address: its AT-URI and content hash (CID). The CID enables
 /// optimistic `swapRecord` concurrency later; for now it's recorded for parity
@@ -44,7 +47,7 @@ pub struct DocRecords {
 }
 
 /// The whole sidecar. `records` is keyed by `id_path` (as a string for stable
-/// JSON keys). A `BTreeMap` keeps the file deterministic/diff-friendly.
+/// YAML keys). A `BTreeMap` keeps the file deterministic/diff-friendly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
     /// The account DID this state was written against. Lets `publish` warn if the
@@ -68,7 +71,7 @@ impl State {
         }
         let raw = fs::read_to_string(path)
             .with_context(|| format!("reading publish state {}", path.display()))?;
-        serde_json::from_str(&raw)
+        serde_yaml_ng::from_str(&raw)
             .with_context(|| format!("parsing publish state {}", path.display()))
     }
 
@@ -80,8 +83,8 @@ impl State {
         {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
-        let json = serde_json::to_string_pretty(self).context("serializing publish state")?;
-        fs::write(path, json).with_context(|| format!("writing {}", path.display()))?;
+        let yaml = serde_yaml_ng::to_string(self).context("serializing publish state")?;
+        fs::write(path, yaml).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
 
@@ -109,7 +112,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_empty_state() {
-        let s = State::load(Path::new("/no/such/atproto.json")).unwrap();
+        let s = State::load(Path::new("/no/such/atproto.yaml")).unwrap();
         assert!(s.publication_uri.is_none());
         assert!(s.records.is_empty());
     }
@@ -117,7 +120,7 @@ mod tests {
     #[test]
     fn round_trips_through_disk() {
         let dir = tempdir("pubstate");
-        let path = dir.join(".italic/atproto.json");
+        let path = dir.join(".italic/atproto.yaml");
         let mut s = State {
             did: Some("did:plc:abc".into()),
             publication_uri: Some("at://did:plc:abc/site.standard.publication/self".into()),
@@ -150,8 +153,10 @@ mod tests {
     #[test]
     fn corrupt_file_errors() {
         let dir = tempdir("pubstate");
-        let path = dir.join("atproto.json");
-        fs::write(&path, "{not json").unwrap();
+        let path = dir.join("atproto.yaml");
+        // Valid YAML, but a sequence — not the mapping `State` deserializes from,
+        // so loading is a hard error rather than a silent reset.
+        fs::write(&path, "- not a map\n").unwrap();
         assert!(State::load(&path).is_err());
         cleanup(&dir);
     }
