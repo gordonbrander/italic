@@ -1,0 +1,310 @@
+//! Hand-rolled `site.standard.document` / `site.standard.publication` record
+//! types and the `Doc`/config → record mapping (feature 1).
+//!
+//! The `site.standard.*` lexicons have no canonical Rust types in `atrium-api`,
+//! and the record set is small, so we serialize plain serde structs to the
+//! documented JSON shape (`$type` discriminator + camelCase fields, optionals
+//! omitted). The PDS validates optimistically, and records are sent as
+//! `Unknown` either way (see [`crate::publish::atproto`]). Blob references reuse
+//! `atrium_api::types::BlobRef`, which already serializes to the data-model blob
+//! shape.
+
+use crate::doc::Doc;
+use crate::html;
+use crate::permalink;
+use atrium_api::types::BlobRef;
+use chrono::SecondsFormat;
+use serde::Serialize;
+use std::path::Path;
+
+pub const DOCUMENT_NSID: &str = "site.standard.document";
+pub const PUBLICATION_NSID: &str = "site.standard.publication";
+
+/// A `com.atproto.repo.strongRef`: a record's AT-URI plus its CID. Used for the
+/// document's `bskyPostRef` cross-link to the announcement post.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StrongRef {
+    pub uri: String,
+    pub cid: String,
+}
+
+/// A `site.standard.document` record. Fields map directly from a [`Doc`]; see
+/// [`document`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Document {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    /// AT-URI of the owning `site.standard.publication` record.
+    pub site: String,
+    pub title: String,
+    /// RFC3339, e.g. `2024-01-20T14:30:00.000Z`.
+    pub published_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    /// Site-root-relative path (combined with the publication URL to build the
+    /// canonical URL), e.g. `/blog/getting-started`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_image: Option<BlobRef>,
+    /// Plaintext rendering of the body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_content: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bsky_post_ref: Option<StrongRef>,
+}
+
+/// A `site.standard.publication` record (the site/blog itself).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Publication {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    pub url: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<BlobRef>,
+}
+
+/// Stable, slug-derived record key for a doc's `site.standard.document`. Derived
+/// from `id_path` (extension stripped) so the mapping is reconstructible even if
+/// the state file is lost. Two distinct paths that slugify identically would
+/// collide — vanishingly rare in practice, and documents `putRecord` in place so
+/// a collision would update rather than duplicate.
+pub fn document_rkey(id_path: &Path) -> String {
+    let stem = id_path.with_extension("");
+    let key = slug::slugify(stem.to_string_lossy());
+    if key.is_empty() {
+        "index".to_string()
+    } else {
+        key
+    }
+}
+
+/// Site-root-relative path for a doc, e.g. `/blog/post/` or `/posts/p.html`. This
+/// is the document record's `path` field; combined with the publication URL it
+/// yields the canonical URL.
+pub fn canonical_path(doc: &Doc, base_path: &str) -> String {
+    format!("{}{}", base_path, permalink::to_url(&doc.output_path))
+}
+
+/// Full canonical URL for a doc, e.g. `https://example.com/blog/post/`. Used by
+/// the bsky link card. `site_url` should have no trailing slash (as normalized by
+/// [`crate::config`]); falls back to the root-relative path when absent.
+pub fn canonical_url(doc: &Doc, site_url: Option<&str>, base_path: &str) -> String {
+    let path = canonical_path(doc, base_path);
+    match site_url {
+        Some(origin) => format!("{origin}{path}"),
+        None => path,
+    }
+}
+
+fn rfc3339(dt: &chrono::DateTime<chrono::Utc>) -> String {
+    dt.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// Map a [`Doc`] to a `site.standard.document` record. `site_uri` is the
+/// publication AT-URI; `cover` is the pre-uploaded cover blob (if any);
+/// `bsky_post_ref` cross-links the announcement post (feature 2, else `None`).
+pub fn document(
+    doc: &Doc,
+    site_uri: &str,
+    base_path: &str,
+    cover: Option<BlobRef>,
+    bsky_post_ref: Option<StrongRef>,
+) -> Document {
+    let text = html::strip_tags(&doc.content);
+    let text_content = if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    };
+    let description = if doc.summary.is_empty() {
+        None
+    } else {
+        Some(doc.summary.clone())
+    };
+    let updated_at = if doc.updated > doc.date {
+        Some(rfc3339(&doc.updated))
+    } else {
+        None
+    };
+    let tags = doc
+        .terms
+        .get("tags")
+        .map(|bucket| bucket.keys().cloned().collect())
+        .unwrap_or_default();
+
+    Document {
+        type_: DOCUMENT_NSID,
+        site: site_uri.to_string(),
+        title: doc.title.clone(),
+        published_at: rfc3339(&doc.date),
+        updated_at,
+        path: Some(canonical_path(doc, base_path)),
+        description,
+        cover_image: cover,
+        text_content,
+        tags,
+        bsky_post_ref,
+    }
+}
+
+/// Build the `site.standard.publication` record from config. `icon` is the
+/// pre-uploaded icon blob. Errors if the required `name`/`url` are missing.
+pub fn publication(
+    config: &crate::publish::config::Publication,
+    icon: Option<BlobRef>,
+) -> anyhow::Result<Publication> {
+    let name = config
+        .name
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("publish.publication.name is required to publish"))?;
+    let url = config
+        .url
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("publish.publication.url is required to publish"))?;
+    Ok(Publication {
+        type_: PUBLICATION_NSID,
+        url,
+        name,
+        description: config.description.clone(),
+        icon,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, NaiveDate, Utc};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn at(date: &str) -> DateTime<Utc> {
+        NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .unwrap()
+            .and_hms_opt(14, 30, 0)
+            .unwrap()
+            .and_utc()
+    }
+
+    fn doc() -> Doc {
+        let mut terms: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        let tags = terms.entry("tags".into()).or_default();
+        tags.insert("tutorial".into(), "Tutorial".into());
+        tags.insert("atproto".into(), "atproto".into());
+        Doc {
+            id_path: PathBuf::from("blog/getting-started.md"),
+            output_path: PathBuf::from("blog/getting-started/index.html"),
+            title: "Getting Started".into(),
+            summary: "Learn how to publish.".into(),
+            content: "<p>Full <em>body</em> text.</p>".into(),
+            terms,
+            date: at("2024-01-20"),
+            updated: at("2024-01-20"),
+            ..Doc::default()
+        }
+    }
+
+    #[test]
+    fn document_rkey_is_slug_of_path() {
+        assert_eq!(
+            document_rkey(Path::new("blog/Getting Started.md")),
+            "blog-getting-started"
+        );
+        assert_eq!(document_rkey(Path::new("index.md")), "index");
+    }
+
+    #[test]
+    fn canonical_path_joins_base_path_and_url() {
+        let d = doc();
+        assert_eq!(canonical_path(&d, ""), "/blog/getting-started/");
+        assert_eq!(
+            canonical_path(&d, "/garden"),
+            "/garden/blog/getting-started/"
+        );
+    }
+
+    #[test]
+    fn canonical_url_prefixes_origin() {
+        let d = doc();
+        assert_eq!(
+            canonical_url(&d, Some("https://example.com"), ""),
+            "https://example.com/blog/getting-started/"
+        );
+        assert_eq!(canonical_url(&d, None, ""), "/blog/getting-started/");
+    }
+
+    #[test]
+    fn document_serializes_to_lexicon_shape() {
+        let d = doc();
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+            None,
+        );
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["$type"], "site.standard.document");
+        assert_eq!(v["site"], "at://did:plc:abc/site.standard.publication/self");
+        assert_eq!(v["title"], "Getting Started");
+        assert_eq!(v["publishedAt"], "2024-01-20T14:30:00.000Z");
+        assert_eq!(v["path"], "/blog/getting-started/");
+        assert_eq!(v["description"], "Learn how to publish.");
+        // HTML stripped to plaintext.
+        assert_eq!(v["textContent"], "Full body text.");
+        // tags come from the `tags` taxonomy bucket keys (sorted).
+        assert_eq!(v["tags"], json!(["atproto", "tutorial"]));
+        // No updatedAt (updated == date), no coverImage, no bskyPostRef.
+        assert!(v.get("updatedAt").is_none());
+        assert!(v.get("coverImage").is_none());
+        assert!(v.get("bskyPostRef").is_none());
+    }
+
+    #[test]
+    fn document_includes_updated_and_bsky_ref_when_present() {
+        let mut d = doc();
+        d.updated = at("2024-02-01");
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+            Some(StrongRef {
+                uri: "at://did:plc:abc/app.bsky.feed.post/3lwa".into(),
+                cid: "bafycid".into(),
+            }),
+        );
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["updatedAt"], "2024-02-01T14:30:00.000Z");
+        assert_eq!(
+            v["bskyPostRef"]["uri"],
+            "at://did:plc:abc/app.bsky.feed.post/3lwa"
+        );
+        assert_eq!(v["bskyPostRef"]["cid"], "bafycid");
+    }
+
+    #[test]
+    fn publication_requires_name_and_url() {
+        let mut cfg = crate::publish::config::Publication::default();
+        assert!(publication(&cfg, None).is_err());
+        cfg.name = Some("My Garden".into());
+        assert!(publication(&cfg, None).is_err());
+        cfg.url = Some("https://example.com".into());
+        let rec = publication(&cfg, None).unwrap();
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["$type"], "site.standard.publication");
+        assert_eq!(v["name"], "My Garden");
+        assert_eq!(v["url"], "https://example.com");
+        assert!(v.get("icon").is_none());
+    }
+}

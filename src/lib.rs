@@ -8,6 +8,7 @@ pub mod doc_index;
 pub mod frontmatter;
 pub mod html;
 pub mod permalink;
+pub mod publish;
 pub mod query;
 pub mod related;
 pub mod site_data;
@@ -42,4 +43,8 @@ pub fn clean() -> Result<()> {
 
 pub fn build(include_drafts: bool) -> Result<()> {
     build::run(include_drafts)
+}
+
+pub fn publish(options: publish::Options) -> Result<()> {
+    command::publish::run(options)
 }

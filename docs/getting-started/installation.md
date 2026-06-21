@@ -27,8 +27,8 @@ cargo install --path .
 italic --help
 ```
 
-You should see the six subcommands (`build`, `watch`, `serve`, `new`,
-`scaffold`, `clean`).
+You should see the seven subcommands (`build`, `watch`, `serve`, `publish`,
+`new`, `scaffold`, `clean`).
 
 ## Upgrade / uninstall
 

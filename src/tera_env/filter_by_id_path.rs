@@ -58,7 +58,9 @@ fn check_known_keys(args: &HashMap<String, Value>) -> tera::Result<()> {
 fn path_arg(args: &HashMap<String, Value>) -> tera::Result<String> {
     match args.get("path") {
         Some(Value::String(s)) => Ok(s.clone()),
-        Some(_) => Err(tera::Error::msg("filter_by_id_path: `path` must be a string")),
+        Some(_) => Err(tera::Error::msg(
+            "filter_by_id_path: `path` must be a string",
+        )),
         None => Err(tera::Error::msg(
             "filter_by_id_path: missing required `path` argument",
         )),
@@ -216,8 +218,11 @@ mod tests {
         let mut ctx = tera::Context::new();
         ctx.insert("docs", &Vec::<Value>::new());
         assert!(
-            env.render_str("{{ docs | filter_by_id_path(path=\"**\", dir=\"x\") }}", &ctx)
-                .is_err()
+            env.render_str(
+                "{{ docs | filter_by_id_path(path=\"**\", dir=\"x\") }}",
+                &ctx
+            )
+            .is_err()
         );
     }
 }

@@ -124,6 +124,12 @@ pub struct Config {
     /// same path already exists.
     #[serde(skip)]
     pub feed: Feed,
+    /// Non-secret `publish:` settings (PDS host, target collection, publication
+    /// metadata, bsky toggles). `None` when the site declares no `publish:` block
+    /// — the `publish` command errors in that case. Secrets (handle/app password)
+    /// are read from the environment, never from here. See [`crate::publish::config`].
+    #[serde(skip)]
+    pub publish: Option<crate::publish::config::Publish>,
 }
 
 impl Default for Config {
@@ -145,6 +151,7 @@ impl Default for Config {
             related: Related::default(),
             sitemap: Sitemap::default(),
             feed: Feed::default(),
+            publish: None,
         }
     }
 }
@@ -200,6 +207,12 @@ impl Config {
         // sitemap or empty feed list names none), so typos fail loudly.
         validate_auto_archives(&config.sitemap, &config.feed, &config.collections)
             .with_context(|| format!("validating `sitemap`/`feed` in {}", path.display()))?;
+        // Every collection named by `publish:` must be declared, like the
+        // sitemap/feed checks. `all` always exists, so the defaults validate.
+        if let Some(publish) = &config.publish {
+            validate_publish(publish, &config.collections)
+                .with_context(|| format!("validating `publish` in {}", path.display()))?;
+        }
         // Derive the URL fields once, from the final (possibly theme-merged) map.
         config.site_url = site
             .get(Value::String("url".into()))
@@ -234,51 +247,64 @@ impl Config {
         }
         let mut config: Self = serde_yaml_ng::from_str(&source)
             .with_context(|| format!("parsing {} into Config", path.display()))?;
-        let (site, defaults_map, collections_map, taxonomies_map, related_map, sitemap_v, feed_v) =
-            match raw {
-                Value::Mapping(mut m) => {
-                    let site = match m.remove(Value::String("site".into())) {
-                        Some(Value::Mapping(s)) => s,
-                        _ => Mapping::new(),
-                    };
-                    let defaults = match m.remove(Value::String("defaults".into())) {
-                        Some(Value::Mapping(d)) => Some(d),
-                        _ => None,
-                    };
-                    let collections = match m.remove(Value::String("collections".into())) {
-                        Some(Value::Mapping(c)) => Some(c),
-                        _ => None,
-                    };
-                    let taxonomies = match m.remove(Value::String("taxonomies".into())) {
-                        Some(Value::Sequence(t)) => Some(t),
-                        _ => None,
-                    };
-                    let related = match m.remove(Value::String("related".into())) {
-                        Some(Value::Mapping(r)) => Some(r),
-                        _ => None,
-                    };
-                    // `sitemap`/`feed` are kept as raw `Value`s (presence matters:
-                    // a missing key stays `Unset` so it can inherit a theme, while
-                    // a present-but-null `sitemap:` disables). `contains_key` lets
-                    // us tell "absent" from "null".
-                    let sitemap = m
-                        .contains_key(Value::String("sitemap".into()))
-                        .then(|| m.remove(Value::String("sitemap".into())).unwrap());
-                    let feed = m
-                        .contains_key(Value::String("feed".into()))
-                        .then(|| m.remove(Value::String("feed".into())).unwrap());
-                    (
-                        site,
-                        defaults,
-                        collections,
-                        taxonomies,
-                        related,
-                        sitemap,
-                        feed,
-                    )
-                }
-                _ => (Mapping::new(), None, None, None, None, None, None),
-            };
+        let (
+            site,
+            defaults_map,
+            collections_map,
+            taxonomies_map,
+            related_map,
+            sitemap_v,
+            feed_v,
+            publish_map,
+        ) = match raw {
+            Value::Mapping(mut m) => {
+                let site = match m.remove(Value::String("site".into())) {
+                    Some(Value::Mapping(s)) => s,
+                    _ => Mapping::new(),
+                };
+                let defaults = match m.remove(Value::String("defaults".into())) {
+                    Some(Value::Mapping(d)) => Some(d),
+                    _ => None,
+                };
+                let collections = match m.remove(Value::String("collections".into())) {
+                    Some(Value::Mapping(c)) => Some(c),
+                    _ => None,
+                };
+                let taxonomies = match m.remove(Value::String("taxonomies".into())) {
+                    Some(Value::Sequence(t)) => Some(t),
+                    _ => None,
+                };
+                let related = match m.remove(Value::String("related".into())) {
+                    Some(Value::Mapping(r)) => Some(r),
+                    _ => None,
+                };
+                // `sitemap`/`feed` are kept as raw `Value`s (presence matters:
+                // a missing key stays `Unset` so it can inherit a theme, while
+                // a present-but-null `sitemap:` disables). `contains_key` lets
+                // us tell "absent" from "null".
+                let sitemap = m
+                    .contains_key(Value::String("sitemap".into()))
+                    .then(|| m.remove(Value::String("sitemap".into())).unwrap());
+                let feed = m
+                    .contains_key(Value::String("feed".into()))
+                    .then(|| m.remove(Value::String("feed".into())).unwrap());
+                let publish = match m.remove(Value::String("publish".into())) {
+                    Some(Value::Mapping(p)) => Some(p),
+                    _ => None,
+                };
+                (
+                    site,
+                    defaults,
+                    collections,
+                    taxonomies,
+                    related,
+                    sitemap,
+                    feed,
+                    publish,
+                )
+            }
+            _ => (Mapping::new(), None, None, None, None, None, None, None),
+        };
         if let Some(map) = collections_map {
             config.collections = parse_collections(&map)
                 .with_context(|| format!("parsing `collections` in {}", path.display()))?;
@@ -301,6 +327,12 @@ impl Config {
         if let Some(value) = feed_v {
             config.feed = parse_feed(&value)
                 .with_context(|| format!("parsing `feed` in {}", path.display()))?;
+        }
+        if let Some(map) = publish_map {
+            config.publish = Some(
+                crate::publish::config::parse_publish(&map, ALL)
+                    .with_context(|| format!("parsing `publish` in {}", path.display()))?,
+            );
         }
         Ok((config, site))
     }
@@ -645,6 +677,31 @@ fn validate_auto_archives(
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Ensure the collection(s) named by `publish:` are declared. The document
+/// collection is required; `bluesky.collection` is optional and only checked when
+/// present. Run after the theme merge, like [`validate_auto_archives`].
+fn validate_publish(
+    publish: &crate::publish::config::Publish,
+    collections: &[(String, Query)],
+) -> Result<()> {
+    let known = |name: &str| collections.iter().any(|(n, _)| n == name);
+    if !known(&publish.collection) {
+        return Err(anyhow::anyhow!(
+            "publish: `{}` does not name a collection (declare it under `collections:`)",
+            publish.collection
+        ));
+    }
+    if let Some(name) = &publish.bluesky.collection
+        && !known(name)
+    {
+        return Err(anyhow::anyhow!(
+            "publish.bluesky: `{}` does not name a collection (declare it under `collections:`)",
+            name
+        ));
     }
     Ok(())
 }
@@ -1345,6 +1402,48 @@ mod tests {
         // A site that disables wins over a theme that enabled.
         assert_eq!(config.sitemap, Sitemap::Disabled);
         assert_eq!(config.feed, Feed::Collections(Vec::new()));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn publish_absent_yields_none() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert!(config.publish.is_none());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn publish_block_parsed_and_defaults_to_all_collection() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "publish:\n  handle: alice.example.com\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        let publish = config.publish.expect("publish block present");
+        assert_eq!(publish.handle.as_deref(), Some("alice.example.com"));
+        // Defaults to the always-present `all` collection, which validates.
+        assert_eq!(publish.collection, ALL);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn publish_unknown_collection_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "publish:\n  collection: nope\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(
+            err.contains("nope"),
+            "error should name the collection: {err}"
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn publish_bluesky_collection_validated() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "publish:\n  bluesky:\n    collection: ghosts\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(err.contains("ghosts"), "{err}");
         cleanup(&dir);
     }
 

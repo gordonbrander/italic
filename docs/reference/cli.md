@@ -1,6 +1,6 @@
 # CLI reference
 
-The `italic` binary has six subcommands. Run `italic --help` or
+The `italic` binary has seven subcommands. Run `italic --help` or
 `italic <command> --help` for the same information at the terminal.
 
 ## `italic build`
@@ -45,6 +45,31 @@ the output directory.
 
 ```sh
 italic watch
+```
+
+## `italic publish`
+
+Build the site and sync it to your ATProto PDS as standard.site documents and
+(optionally) Bluesky summaries. Unlike the other commands this one is networked,
+stateful, and authenticated, and it writes **no HTML** — it reuses the build only
+to obtain your rendered documents. Requires a [`publish:`](config.md#publish)
+block and credentials (see the
+[Publishing guide](../guides/publishing-atproto.md)).
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--dry-run` | off | Build records and report what would change, making no network calls. |
+| `--documents-only` | off | Sync only `site.standard.document`/`publication` records (skip Bluesky). |
+| `--bsky-only` | off | Create only `app.bsky.feed.post` summaries (skip document records). |
+
+Drafts are never published (the build runs with drafts excluded). Credentials
+come from the environment or a gitignored `.italic/credentials` file — never
+`config.yaml`.
+
+```sh
+italic publish --dry-run        # preview — safe, no network
+italic publish                  # documents + (if enabled) Bluesky summaries
+italic publish --documents-only # long-form records only
 ```
 
 ## `italic new <path>`

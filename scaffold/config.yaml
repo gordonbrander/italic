@@ -51,6 +51,33 @@
 ## Scan Markdown for #hashtags and fold them into doc's tags.
 # hashtags: true
 
+## Publish to an ATProto PDS (standard.site documents + optional Bluesky
+## summaries) with `italic publish`. Non-secret settings only — your handle and
+## app password come from the environment (ITALIC_ATPROTO_HANDLE,
+## ITALIC_ATPROTO_APP_PASSWORD), never this file.
+# publish:
+#   pds_host: https://bsky.social
+#   handle: alice.example.com
+#   # Which collection's docs become site.standard.document records.
+#   collection: posts
+#   # Emit the .well-known verification file + per-doc AT-URI binding during build.
+#   verification: true
+#   publication:
+#     name: My Garden
+#     url: https://example.com
+#     description: A digital garden.
+#     icon: static/icon.png
+#   # Announce each post as an app.bsky.feed.post with a link card back to it.
+#   bluesky:
+#     enabled: false
+#     # Defaults to the document collection above.
+#     collection: posts
+#     post_template: "{{ title }} — {{ summary }}"
+#     include_link_card: true
+#     thumb: cover            # cover | none
+#     # Skip posts older than this on a first publish (avoid flooding the firehose).
+#     announce_after: 2026-01-01
+
 ## Customize source project directories.
 # content_dir: content
 # output_dir: public
