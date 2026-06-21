@@ -119,7 +119,7 @@ Don't commit it to a public one (it isn't secret, but it's noise). It is written
 incrementally, after each record, so an interrupted run never loses a post it
 already created.
 
-## Publishing documents (feature 1)
+## Publishing full posts
 
 Each document in your configured `collection` maps straight from its existing
 fields — no new content modeling:
@@ -140,7 +140,7 @@ The **publication** record comes from `publish.publication` — `name` and `url`
 are required to publish it (the build fails loudly if either is missing). An
 optional `icon:` path is uploaded as a blob.
 
-## Bluesky summaries (feature 2)
+## Publishing Bluesky posts
 
 Turn announcements on under `publish.bluesky`:
 
