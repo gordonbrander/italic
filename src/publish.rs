@@ -191,7 +191,7 @@ async fn sync(
     state: &mut State,
     state_path: &Path,
 ) -> Result<()> {
-    let creds = Credentials::load(publish, Path::new(atproto::CREDENTIALS_PATH))?;
+    let creds = Credentials::load(publish)?;
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", creds.handle, client.did());
 

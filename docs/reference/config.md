@@ -221,9 +221,10 @@ order.
 Non-secret settings for `italic publish`, which syncs your site to an ATProto
 PDS as [standard.site](https://standard.site/) documents and optional Bluesky
 summaries. Absent by default — without a `publish:` block, `italic publish`
-errors. **Secrets never go here**: your handle and app password come from the
-environment or a gitignored `.italic/credentials` file. Unknown keys (in the
-block or its sub-maps) are an error. See the
+errors. **Secrets never go here**: your app password comes from the environment
+(`ITALIC_ATPROTO_APP_PASSWORD`), and your handle may too
+(`ITALIC_ATPROTO_HANDLE`). Unknown keys (in the block or its sub-maps) are an
+error. See the
 [Publishing guide](../guides/publishing-atproto.md).
 
 ```yaml
@@ -251,7 +252,7 @@ Top-level keys:
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `pds_host` | string | `https://bsky.social` | PDS XRPC host. |
-| `handle` | string | none | Account handle. Overridden by `ITALIC_ATPROTO_HANDLE` or the credentials file. |
+| `handle` | string | none | Account handle. Overridden by `ITALIC_ATPROTO_HANDLE`. |
 | `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
 | `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). |
 | `publication` | mapping | — | The `site.standard.publication` record metadata. |

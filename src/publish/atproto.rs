@@ -1,35 +1,33 @@
 //! XRPC client + app-password auth for the PDS.
 //!
 //! v1 uses **app-password** auth (`com.atproto.server.createSession`), the
-//! pragmatic near-term path; OAuth+DPoP is a fast-follow. Secrets come from the
-//! environment or a gitignored credentials file — **never** `config.yaml`. The
-//! [`Client`] wraps an `atrium-api` agent and exposes the three repo operations
-//! both publish features need: [`Client::upload_blob`], [`Client::put_record`]
-//! (create-or-update at a stable rkey, for documents/publication), and
-//! [`Client::create_record`] (server-assigned rkey, for create-once bsky posts).
+//! pragmatic near-term path; OAuth+DPoP is a fast-follow. The app password comes
+//! only from the environment — **never** `config.yaml`. The non-secret host and
+//! handle come from the environment too, falling back to the `publish:` config.
+//! The [`Client`] wraps an `atrium-api` agent and exposes the three repo
+//! operations both publish features need: [`Client::upload_blob`],
+//! [`Client::put_record`] (create-or-update at a stable rkey, for
+//! documents/publication), and [`Client::create_record`] (server-assigned rkey,
+//! for create-once bsky posts).
 
 use crate::publish::config::Publish;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use atrium_api::agent::Agent;
 use atrium_api::agent::atp_agent::{CredentialSession, store::MemorySessionStore};
 use atrium_api::types::{BlobRef, TryIntoUnknown};
 use atrium_xrpc_client::reqwest::ReqwestClient;
 use serde::Serialize;
-use std::fs;
-use std::path::Path;
 
-/// Env var names for the (non-config) secrets.
+/// Env var names. The app password is read only from here; the host/handle read
+/// from here first, then fall back to the (non-secret) `publish:` config.
 const ENV_PDS_HOST: &str = "ITALIC_ATPROTO_PDS_HOST";
 const ENV_HANDLE: &str = "ITALIC_ATPROTO_HANDLE";
 const ENV_APP_PASSWORD: &str = "ITALIC_ATPROTO_APP_PASSWORD";
 
-/// Default location of the gitignored credentials file (KEY=VALUE lines).
-pub const CREDENTIALS_PATH: &str = ".italic/credentials";
-
 type Session = CredentialSession<MemorySessionStore, ReqwestClient>;
 
 /// Resolved connection secrets. The host/handle may come from config; the app
-/// password must come from the environment or the credentials file.
+/// password must come from the environment.
 pub struct Credentials {
     pub pds_host: String,
     pub handle: String,
@@ -37,38 +35,28 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    /// Resolve credentials. Precedence per field is env var → credentials file →
-    /// config (host/handle only). The app password is secret: it is read only
-    /// from the env or the file, never config, and its absence is a hard error
-    /// with a pointer to both sources.
-    pub fn load(publish: &Publish, credentials_path: &Path) -> Result<Credentials> {
-        let file = CredentialsFile::load(credentials_path)?;
-
-        let pds_host = env(ENV_PDS_HOST)
-            .or_else(|| file.get("pds_host"))
-            .unwrap_or_else(|| publish.pds_host.clone());
+    /// Resolve credentials from the environment, with a config fallback for the
+    /// non-secret host/handle. The app password is secret: it is read only from
+    /// `ITALIC_ATPROTO_APP_PASSWORD`, never config, and its absence is a hard
+    /// error.
+    pub fn load(publish: &Publish) -> Result<Credentials> {
+        let pds_host = env(ENV_PDS_HOST).unwrap_or_else(|| publish.pds_host.clone());
 
         let handle = env(ENV_HANDLE)
-            .or_else(|| file.get("handle"))
             .or_else(|| publish.handle.clone())
             .ok_or_else(|| {
                 anyhow!(
-                    "no handle configured — set `publish.handle` in config.yaml, \
-                     {ENV_HANDLE}, or `handle` in {}",
-                    credentials_path.display()
+                    "no handle configured — set {ENV_HANDLE} or `publish.handle` in config.yaml"
                 )
             })?;
 
-        let app_password = env(ENV_APP_PASSWORD)
-            .or_else(|| file.get("app_password"))
-            .ok_or_else(|| {
-                anyhow!(
-                    "no app password — set {ENV_APP_PASSWORD} or `app_password` in {} \
-                     (create one at https://bsky.app/settings/app-passwords). \
-                     Never put it in config.yaml.",
-                    credentials_path.display()
-                )
-            })?;
+        let app_password = env(ENV_APP_PASSWORD).ok_or_else(|| {
+            anyhow!(
+                "no app password — set {ENV_APP_PASSWORD} \
+                 (create one at https://bsky.app/settings/app-passwords). \
+                 Never put it in config.yaml."
+            )
+        })?;
 
         Ok(Credentials {
             pds_host,
@@ -80,43 +68,6 @@ impl Credentials {
 
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
-}
-
-/// A minimal `KEY=VALUE` credentials file parser. Blank lines and `#` comments
-/// are ignored. Absent file → empty (env/config may still supply everything).
-struct CredentialsFile {
-    entries: Vec<(String, String)>,
-}
-
-impl CredentialsFile {
-    fn load(path: &Path) -> Result<CredentialsFile> {
-        if !path.exists() {
-            return Ok(CredentialsFile {
-                entries: Vec::new(),
-            });
-        }
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("reading credentials {}", path.display()))?;
-        let mut entries = Vec::new();
-        for line in raw.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((k, v)) = line.split_once('=') {
-                entries.push((k.trim().to_string(), v.trim().to_string()));
-            }
-        }
-        Ok(CredentialsFile { entries })
-    }
-
-    fn get(&self, key: &str) -> Option<String> {
-        self.entries
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
-            .filter(|v| !v.is_empty())
-    }
 }
 
 /// A reference to a written record: AT-URI + content hash.
@@ -258,7 +209,6 @@ impl Client {
 mod tests {
     use super::*;
     use crate::publish::config::{Bluesky, Publication, Publish};
-    use crate::test_util::{cleanup, tempdir};
 
     fn publish_config() -> Publish {
         Publish {
@@ -271,55 +221,44 @@ mod tests {
         }
     }
 
+    // Credential resolution mutates process-global env vars, so the cases share
+    // one test to run sequentially rather than racing across parallel test
+    // threads. Each step sets exactly the vars it needs and clears the rest.
     #[test]
-    fn credentials_file_supplies_password_and_overrides_handle() {
-        let dir = tempdir("creds");
-        let path = dir.join("credentials");
-        fs::write(
-            &path,
-            "# my creds\nhandle = file.handle\napp_password = hunter2\n",
-        )
-        .unwrap();
-        // Ensure env doesn't leak in from the test environment.
-        unsafe {
+    fn resolve_credentials() {
+        let clear = || unsafe {
+            std::env::remove_var(ENV_PDS_HOST);
             std::env::remove_var(ENV_HANDLE);
             std::env::remove_var(ENV_APP_PASSWORD);
-            std::env::remove_var(ENV_PDS_HOST);
-        }
-        let creds = Credentials::load(&publish_config(), &path).unwrap();
-        assert_eq!(creds.handle, "file.handle");
-        assert_eq!(creds.app_password, "hunter2");
-        assert_eq!(creds.pds_host, "https://bsky.social");
-        cleanup(&dir);
-    }
+        };
 
-    #[test]
-    fn missing_password_errors_with_pointer() {
-        let dir = tempdir("creds");
-        let path = dir.join("credentials"); // does not exist
-        unsafe {
-            std::env::remove_var(ENV_APP_PASSWORD);
-        }
+        // No app password anywhere → hard error pointing at the env var.
+        clear();
         let err = format!(
             "{:#}",
-            Credentials::load(&publish_config(), &path)
+            Credentials::load(&publish_config())
                 .err()
                 .expect("should error without a password")
         );
         assert!(err.contains("app password"), "{err}");
-        cleanup(&dir);
-    }
 
-    #[test]
-    fn handle_falls_back_to_config() {
-        let dir = tempdir("creds");
-        let path = dir.join("credentials");
-        fs::write(&path, "app_password = pw\n").unwrap();
+        // Password from env; host/handle fall back to config.
+        clear();
         unsafe {
-            std::env::remove_var(ENV_HANDLE);
+            std::env::set_var(ENV_APP_PASSWORD, "pw");
         }
-        let creds = Credentials::load(&publish_config(), &path).unwrap();
+        let creds = Credentials::load(&publish_config()).unwrap();
         assert_eq!(creds.handle, "config.handle");
-        cleanup(&dir);
+        assert_eq!(creds.app_password, "pw");
+        assert_eq!(creds.pds_host, "https://bsky.social");
+
+        // Env overrides the config handle.
+        unsafe {
+            std::env::set_var(ENV_HANDLE, "env.handle");
+        }
+        let creds = Credentials::load(&publish_config()).unwrap();
+        assert_eq!(creds.handle, "env.handle");
+
+        clear();
     }
 }

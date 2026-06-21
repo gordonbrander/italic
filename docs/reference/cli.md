@@ -62,8 +62,8 @@ block and credentials (see the
 | `--documents-only` | off | Sync only `site.standard.document`/`publication` records (skip Bluesky). |
 | `--bsky-only` | off | Create only `app.bsky.feed.post` summaries (skip document records). |
 
-Drafts are never published (the build runs with drafts excluded). Credentials
-come from the environment or a gitignored `.italic/credentials` file — never
+Drafts are never published (the build runs with drafts excluded). The app
+password comes from the environment (`ITALIC_ATPROTO_APP_PASSWORD`) — never
 `config.yaml`.
 
 ```sh

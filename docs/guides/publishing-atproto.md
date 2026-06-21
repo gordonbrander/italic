@@ -75,30 +75,26 @@ document per post. Re-running updates the changed records in place.
 
 ## Credentials
 
-Secrets never live in `config.yaml` (which you check into git). italic resolves
-each value from, in order of precedence:
+Your **app password is a secret and never lives in `config.yaml`** (which you
+check into git) — it comes only from the environment. The non-secret host and
+handle come from the environment too, falling back to the `publish:` config:
 
-1. an **environment variable**,
-2. a gitignored **credentials file** at `.italic/credentials`,
-3. for the non-secret host/handle only, the `publish:` config.
+| Setting | Env var | Config fallback |
+|---------|---------|-----------------|
+| PDS host | `ITALIC_ATPROTO_PDS_HOST` | `publish.pds_host` (default `https://bsky.social`) |
+| Handle | `ITALIC_ATPROTO_HANDLE` | `publish.handle` |
+| App password | `ITALIC_ATPROTO_APP_PASSWORD` | **never** |
 
-| Setting | Env var | File key | Config fallback |
-|---------|---------|----------|-----------------|
-| PDS host | `ITALIC_ATPROTO_PDS_HOST` | `pds_host` | `publish.pds_host` (default `https://bsky.social`) |
-| Handle | `ITALIC_ATPROTO_HANDLE` | `handle` | `publish.handle` |
-| App password | `ITALIC_ATPROTO_APP_PASSWORD` | `app_password` | **never** |
+Export the env vars in your shell before publishing (or pass them inline on the
+command, or set them in your CI secrets):
 
-The credentials file is a simple `KEY=VALUE` list (blank lines and `#` comments
-ignored):
-
-```
-# .italic/credentials  — add `.italic/` to .gitignore
-handle = alice.example.com
-app_password = xxxx-xxxx-xxxx-xxxx
+```sh
+export ITALIC_ATPROTO_HANDLE=alice.example.com
+export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-> **Add `.italic/` to your `.gitignore`.** It holds both your credentials file
-> (if you use one) and the publish state file described below.
+> **Add `.italic/` to your `.gitignore`.** It holds the publish state file
+> described below.
 
 ## The state file
 
@@ -253,7 +249,7 @@ for details):
 ```yaml
 publish:
   pds_host: https://bsky.social   # optional
-  handle: alice.example.com       # or via env / credentials file
+  handle: alice.example.com       # or via ITALIC_ATPROTO_HANDLE
   collection: posts               # docs to publish; defaults to `all`
   verification: true              # emit the .well-known + <link> proofs
   publication:
