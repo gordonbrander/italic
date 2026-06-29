@@ -72,11 +72,21 @@ pub fn run(config: &Config, index: &DocIndex, options: Options) -> Result<()> {
 
     let bsky_docs = bsky_doc_set(publish, index);
 
+    // Document rkeys are derived from each doc's absolute canonical URL, so the
+    // origin is required to disambiguate records — without it, two sites sharing
+    // one PDS would collide.
+    if options.documents && config.site_url.is_none() {
+        return Err(anyhow!(
+            "site.url is required to publish documents — it disambiguates record \
+             keys so multiple sites can share one PDS"
+        ));
+    }
+
     let state_path = Path::new(state::STATE_PATH);
     let mut state = State::load(state_path)?;
 
     if options.dry_run {
-        return dry_run(publish, &options, &docs, &bsky_docs, &state);
+        return dry_run(config, publish, &options, &docs, &bsky_docs, &state);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -128,6 +138,7 @@ fn announce_eligible(
 
 /// Print what a real run would do, without any network calls.
 fn dry_run(
+    config: &Config,
     publish: &Publish,
     options: &Options,
     docs: &[&Doc],
@@ -151,10 +162,12 @@ fn dry_run(
             } else {
                 "create"
             };
+            let url =
+                document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
             println!(
                 "    {verb} {} (rkey={})",
                 doc.id_path.display(),
-                document::document_rkey(&doc.id_path)
+                document::document_rkey(&url)
             );
         }
     }
@@ -211,7 +224,12 @@ async fn sync(
     // Publication bootstrap (only needed when syncing documents, which reference
     // it via `site`).
     let publication_uri = if options.documents {
-        Some(bootstrap_publication(&client, publish, state, state_path).await?)
+        // `run` guarantees `site_url` is set when documents are enabled.
+        let site_url = config
+            .site_url
+            .as_deref()
+            .expect("site.url required when publishing documents");
+        Some(bootstrap_publication(&client, publish, site_url, state, state_path).await?)
     } else {
         state.publication_uri.clone()
     };
@@ -271,7 +289,9 @@ async fn sync(
             let site_uri = publication_uri
                 .as_deref()
                 .expect("publication bootstrapped when documents enabled");
-            let rkey = document::document_rkey(&doc.id_path);
+            let url =
+                document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
+            let rkey = document::document_rkey(&url);
             let record =
                 document::document(doc, site_uri, &config.base_path, cover, bsky_ref.clone());
             let written = client
@@ -296,10 +316,12 @@ async fn sync(
 }
 
 /// Create or update the single `site.standard.publication` record and return its
-/// AT-URI (recorded in state). Uses a stable `self` rkey.
+/// AT-URI (recorded in state). The rkey is derived from the site origin so each
+/// site gets its own publication record on a shared PDS.
 async fn bootstrap_publication(
     client: &Client,
     publish: &Publish,
+    site_url: &str,
     state: &mut State,
     state_path: &Path,
 ) -> Result<String> {
@@ -308,8 +330,9 @@ async fn bootstrap_publication(
         None => None,
     };
     let record = document::publication(&publish.publication, icon)?;
+    let rkey = document::publication_rkey(site_url);
     let written = client
-        .put_record(document::PUBLICATION_NSID, "self", &record)
+        .put_record(document::PUBLICATION_NSID, &rkey, &record)
         .await
         .context("publishing site.standard.publication")?;
     state.publication_uri = Some(written.uri.clone());

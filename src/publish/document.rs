@@ -15,7 +15,7 @@ use crate::permalink;
 use atrium_api::types::BlobRef;
 use chrono::SecondsFormat;
 use serde::Serialize;
-use std::path::Path;
+use sha2::{Digest, Sha256};
 
 pub const DOCUMENT_NSID: &str = "site.standard.document";
 pub const PUBLICATION_NSID: &str = "site.standard.publication";
@@ -73,19 +73,26 @@ pub struct Publication {
     pub icon: Option<BlobRef>,
 }
 
-/// Stable, slug-derived record key for a doc's `site.standard.document`. Derived
-/// from `id_path` (extension stripped) so the mapping is reconstructible even if
-/// the state file is lost. Two distinct paths that slugify identically would
-/// collide — vanishingly rare in practice, and documents `putRecord` in place so
-/// a collision would update rather than duplicate.
-pub fn document_rkey(id_path: &Path) -> String {
-    let stem = id_path.with_extension("");
-    let key = slug::slugify(stem.to_string_lossy());
-    if key.is_empty() {
-        "index".to_string()
-    } else {
-        key
-    }
+/// Stable record key: the full SHA-256 of `input`, base32-encoded and lowercased
+/// (52 chars). Deterministic and collision-resistant; the charset is rkey-safe
+/// (lowercase `a`–`z`, `2`–`7`) and the length is well under the 512-char limit.
+fn rkey_hash(input: &str) -> String {
+    let digest = Sha256::digest(input.as_bytes());
+    data_encoding::BASE32_NOPAD.encode(&digest).to_lowercase()
+}
+
+/// Record key for a doc's `site.standard.document`, derived from its absolute
+/// canonical URL (origin + path) so two sites published to one PDS never collide.
+/// Pass the output of [`canonical_url`]. Deterministic and reconstructible from
+/// config + the doc's output path even if the state file is lost.
+pub fn document_rkey(canonical_url: &str) -> String {
+    rkey_hash(canonical_url)
+}
+
+/// Record key for the `site.standard.publication`, derived from the site origin
+/// so each site gets its own publication record on a shared PDS.
+pub fn publication_rkey(site_url: &str) -> String {
+    rkey_hash(site_url)
 }
 
 /// Site-root-relative path for a doc, e.g. `/blog/post/` or `/posts/p.html`. This
@@ -215,12 +222,30 @@ mod tests {
     }
 
     #[test]
-    fn document_rkey_is_slug_of_path() {
+    fn document_rkey_hashes_canonical_url() {
+        // Deterministic: pinned to the full base32 SHA-256 of the canonical URL.
         assert_eq!(
-            document_rkey(Path::new("blog/Getting Started.md")),
-            "blog-getting-started"
+            document_rkey("https://example.com/blog/getting-started/"),
+            "c5oqyxkz4pfia2zmhhye62t42vdzpiwjdmtphglnfxwpg2y5v4ba"
         );
-        assert_eq!(document_rkey(Path::new("index.md")), "index");
+        // 52 chars, all rkey-safe base32 (lowercase a–z, 2–7).
+        let rkey = document_rkey("https://example.com/blog/getting-started/");
+        assert_eq!(rkey.len(), 52);
+        assert!(rkey.chars().all(|c| matches!(c, 'a'..='z' | '2'..='7')));
+        // Origin-sensitive: same path on different origins → different rkeys.
+        assert_ne!(document_rkey("https://a.com/p/"), document_rkey("https://b.com/p/"));
+    }
+
+    #[test]
+    fn publication_rkey_hashes_origin() {
+        assert_eq!(
+            publication_rkey("https://example.com"),
+            "cadiblkunttkk57uf5jn6m5uz7okovuftztexdl54mu3cugqttuq"
+        );
+        assert_ne!(
+            publication_rkey("https://a.com"),
+            publication_rkey("https://b.com")
+        );
     }
 
     #[test]

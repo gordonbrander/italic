@@ -1,42 +1,69 @@
 # rkey generation
 
-## `standard.site` rkeys
+## `site.standard` rkeys
 
-`standard.site` rkeys are generated **deterministically from the document's file path** — they're slug-derived, not random or TID-based.
+Record keys for `site.standard.document` and `site.standard.publication` are
+**hashes of the site's absolute URLs**, so two Italic sites published to the same
+PDS account never collide.
+
+An AT-Proto record is uniquely identified by `(DID, collection, rkey)`. A single
+PDS account is one DID, so if the rkey carried no site identity, two sites sharing
+that account would clobber each other's records. Folding the origin into the rkey
+makes records unique per site.
 
 ### The generator
 
-`src/publish/document.rs:76`
+`src/publish/document.rs`
 
 ```rust
-pub fn document_rkey(id_path: &Path) -> String {
-    let stem = id_path.with_extension("");
-    let key = slug::slugify(stem.to_string_lossy());
-    if key.is_empty() {
-        "index".to_string()
-    } else {
-        key
-    }
+fn rkey_hash(input: &str) -> String {
+    let digest = Sha256::digest(input.as_bytes());
+    data_encoding::BASE32_NOPAD.encode(&digest).to_lowercase()
+}
+
+pub fn document_rkey(canonical_url: &str) -> String {
+    rkey_hash(canonical_url)
+}
+
+pub fn publication_rkey(site_url: &str) -> String {
+    rkey_hash(site_url)
 }
 ```
 
-Steps:
-1. Strip the extension off the document's `id_path`.
-2. `slug::slugify` it (lowercase, spaces/special chars → hyphens, ASCII-only) via the `slug` crate (`Cargo.toml:34`).
-3. Fall back to `"index"` if the slug is empty.
+- **Document rkey** = `rkey_hash` of the doc's absolute canonical URL — origin +
+  base path + the doc's web path — built by `canonical_url(doc, site_url,
+  base_path)` (`document.rs`). e.g.
+  `https://example.com/blog/getting-started/` → `c5oqyxkz4pfia2zmhhye62t42vdzpiwjdmtphglnfxwpg2y5v4ba`.
+- **Publication rkey** = `rkey_hash` of the site origin (`site.url`). Replaces the
+  old hardcoded `"self"`, which would otherwise collide for two sites on one PDS.
 
-Examples (from tests at `document.rs:218`):
-- `blog/Getting Started.md` → `blog-getting-started`
-- `index.md` → `index`
+The hash is the full SHA-256, base32-encoded and lowercased: 52 chars, all in the
+rkey-safe charset (`a`–`z`, `2`–`7`), well under AT-Proto's 512-char limit. The
+full digest is used (not truncated) so collisions are negligible.
 
-The collection is `site.standard.document` (`document.rs:20`); the publication record uses a hardcoded rkey `"self"` (`publish.rs:300`).
+### `site.url` is required
 
-### Why stable slugs
+Publishing documents **requires** `site.url` to be configured — it's the origin
+that disambiguates rkeys. `run()` (`publish.rs`) errors early if documents are
+enabled and `site.url` is unset.
 
-Because rkeys are derived from the path, they're **reconstructible even if the state file is lost**, and publishing uses `putRecord` (not `createRecord`), so re-publishing a document updates it in place rather than duplicating. Two paths that slugify identically would collide — rare, and a collision just updates rather than duplicates.
+### Deterministic and reconstructible
 
-This contrasts with Bluesky posts in the same repo, which use **server-assigned TID rkeys** via `createRecord` (create-once) — see `atproto.rs:168` and `state.rs:11`.
+Because the rkey is a pure function of config (`site.url`, `base_path`) plus the
+doc's output path, it's reconstructible even if the state file
+(`.italic/atproto.yaml`) is lost. Publishing uses `putRecord` (not
+`createRecord`), so re-publishing a document updates it in place.
 
-Generated rkeys are persisted in the sidecar state file `.italic/atproto.yaml`, keyed by `id_path` (`state.rs:29`).
+Note the rkey now tracks the **published URL** (via `output_path`/permalink), not
+the source `id_path`. Changing a doc's `permalink:` frontmatter changes its rkey.
 
-One note: it's the `site.standard.*` lexicon (NSID `site.standard.document`), not `standard.site` — the call sites are `publish.rs:274` (publish) and `publish.rs:157` (dry-run).
+This contrasts with Bluesky posts in the same repo, which use **server-assigned
+TID rkeys** via `createRecord` (create-once) — see `atproto.rs` and `state.rs`.
+
+### Migration note (breaking change)
+
+Switching from the old slug-of-path rkeys to URL hashes is **breaking** for sites
+already published with the old scheme. On the next publish, records are written at
+the new rkeys and the old records are left **orphaned** on the PDS — they are not
+auto-deleted. Delete stale records manually if desired. (A future `publish
+--prune` could diff PDS records against state.)

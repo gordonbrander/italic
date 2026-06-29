@@ -12,7 +12,8 @@
 //! records are create-once (server-assigned TID rkeys, treated as immutable by
 //! clients), so the only thing preventing a duplicate post on the next run is the
 //! `bsky` entry recorded here. Lose the file and you risk re-announcing every post.
-//! Document rkeys, by contrast, are slug-derived and reconstructible.
+//! Document rkeys, by contrast, are a hash of the canonical URL and so are
+//! reconstructible from config + the doc's output path.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

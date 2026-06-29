@@ -128,9 +128,13 @@ async fn check(publish: &Publish, state: &State, options: Options) -> Result<()>
     // Publication record. With a recorded CID we detect drift like any other
     // record; older state files (pre-`publication_cid`) only get an existence
     // check, since there's no expected hash to compare against.
-    if options.documents && state.publication_uri.is_some() {
+    if options.documents
+        && let Some(uri) = state.publication_uri.as_deref()
+    {
+        // The publication rkey is origin-derived; recover it from the recorded URI.
+        let rkey = super::rkey_from_uri(uri);
         let fetched = client
-            .get_record_cid(document::PUBLICATION_NSID, "self")
+            .get_record_cid(document::PUBLICATION_NSID, &rkey)
             .await?;
         let status = match &state.publication_cid {
             Some(cid) => classify(cid, fetched.as_deref()),
@@ -138,9 +142,9 @@ async fn check(publish: &Publish, state: &State, options: Options) -> Result<()>
             None => Status::Missing,
         };
         match status {
-            Status::Ok => println!("  ok      publication self"),
-            Status::Changed => println!("  CHANGED publication self"),
-            Status::Missing => println!("  MISSING publication self"),
+            Status::Ok => println!("  ok      publication"),
+            Status::Changed => println!("  CHANGED publication"),
+            Status::Missing => println!("  MISSING publication"),
         }
         tally.add(status);
     }

@@ -121,8 +121,9 @@ impl Client {
         Ok(out.data.blob)
     }
 
-    /// Create-or-update a record at a known `rkey` (stable, slug-derived).
-    /// Re-publishing updates in place. Used for `site.standard.document` and the
+    /// Create-or-update a record at a known `rkey` (a stable hash of the
+    /// document's canonical URL / the site origin). Re-publishing updates in
+    /// place. Used for `site.standard.document` and the
     /// `site.standard.publication` record.
     pub async fn put_record(
         &self,
