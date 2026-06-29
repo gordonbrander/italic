@@ -57,6 +57,11 @@ pub struct State {
     /// AT-URI of the one `site.standard.publication` record, once bootstrapped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publication_uri: Option<String>,
+    /// CID of the publication record, so `pubstatus` can detect drift (not just
+    /// existence). Optional for backward compatibility with state files written
+    /// before this was recorded; absent there means existence-only verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication_cid: Option<String>,
     #[serde(default)]
     pub records: BTreeMap<String, DocRecords>,
 }
@@ -124,6 +129,7 @@ mod tests {
         let mut s = State {
             did: Some("did:plc:abc".into()),
             publication_uri: Some("at://did:plc:abc/site.standard.publication/self".into()),
+            publication_cid: Some("bafypub".into()),
             ..State::default()
         };
         s.doc_mut(Path::new("posts/hello.md")).document = Some(RecordRef {

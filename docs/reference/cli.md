@@ -72,6 +72,33 @@ italic publish                  # documents + (if enabled) Bluesky summaries
 italic publish --documents-only # long-form records only
 ```
 
+## `italic pubstatus`
+
+Read back the records `italic publish` wrote and confirm they still exist on your
+PDS and match local state. Networked, authenticated, and **read-only** — it never
+writes a record or touches the state file. Unlike `publish` it does **not** build
+the site, so it works even while your content is mid-edit. Requires a
+[`publish:`](config.md#publish) block, credentials, and a prior `publish` (it
+checks what's recorded in `.italic/atproto.yaml`).
+
+For each recorded record it reports `ok` (present, content hash matches),
+`CHANGED` (present, but the live CID differs — edited or re-written since publish),
+or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
+nonzero**, so it can gate a CI step.
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--documents-only` | off | Check only `site.standard.document`/`publication` records (skip Bluesky). |
+| `--bsky-only` | off | Check only `app.bsky.feed.post` summaries (skip document records). |
+
+```sh
+italic pubstatus                   # check every published record
+italic pubstatus --documents-only  # long-form records only
+```
+
+See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,
+including manual verification with `curl`.
+
 ## `italic new <path>`
 
 Scaffold an empty starter site at `<path>`. The path must not already exist.

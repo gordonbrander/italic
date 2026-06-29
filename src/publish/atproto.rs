@@ -203,6 +203,54 @@ impl Client {
             cid: out.data.cid.as_ref().to_string(),
         })
     }
+
+    /// Fetch a record's CID by collection + rkey, read from the authenticated
+    /// repo. `Ok(None)` means the record does not exist (`RecordNotFound`);
+    /// `Ok(Some(cid))` means it's present. Other XRPC errors propagate.
+    ///
+    /// Read-only — used by `italic pubstatus` to confirm published records still
+    /// exist and match local state.
+    pub async fn get_record_cid(&self, collection: &str, rkey: &str) -> Result<Option<String>> {
+        let params = atrium_api::com::atproto::repo::get_record::ParametersData {
+            cid: None,
+            collection: collection
+                .parse()
+                .map_err(|e| anyhow!("invalid collection NSID `{collection}`: {e}"))?,
+            repo: self
+                .did
+                .parse()
+                .map_err(|e| anyhow!("invalid repo DID `{}`: {e}", self.did))?,
+            rkey: rkey
+                .parse()
+                .map_err(|e| anyhow!("invalid rkey `{rkey}`: {e}"))?,
+        }
+        .into();
+        match self.agent.api.com.atproto.repo.get_record(params).await {
+            Ok(out) => Ok(out.data.cid.as_ref().map(|c| c.as_ref().to_string())),
+            Err(e) if is_record_not_found(&e) => Ok(None),
+            Err(e) => Err(anyhow!("getRecord {collection}/{rkey} failed: {e}")),
+        }
+    }
+}
+
+/// Whether an XRPC error from `getRecord` is a "record not found" — the expected,
+/// non-fatal signal that a published record is missing from the PDS. Matches both
+/// the typed lexicon error and the generic error-code body, since which form a PDS
+/// returns can vary.
+fn is_record_not_found(
+    err: &atrium_api::xrpc::Error<atrium_api::com::atproto::repo::get_record::Error>,
+) -> bool {
+    use atrium_api::com::atproto::repo::get_record::Error as GetRecord;
+    use atrium_api::xrpc::Error;
+    use atrium_api::xrpc::error::XrpcErrorKind;
+    let Error::XrpcResponse(resp) = err else {
+        return false;
+    };
+    match &resp.error {
+        Some(XrpcErrorKind::Custom(GetRecord::RecordNotFound(_))) => true,
+        Some(XrpcErrorKind::Undefined(body)) => body.error.as_deref() == Some("RecordNotFound"),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -260,5 +308,40 @@ mod tests {
         assert_eq!(creds.handle, "env.handle");
 
         clear();
+    }
+
+    #[test]
+    fn record_not_found_is_detected() {
+        use atrium_api::com::atproto::repo::get_record::Error as GetRecord;
+        use atrium_api::xrpc::Error;
+        use atrium_api::xrpc::error::{ErrorResponseBody, XrpcError, XrpcErrorKind};
+        use atrium_api::xrpc::http::StatusCode;
+
+        // Typed lexicon error.
+        let typed = Error::XrpcResponse(XrpcError {
+            status: StatusCode::BAD_REQUEST,
+            error: Some(XrpcErrorKind::Custom(GetRecord::RecordNotFound(None))),
+        });
+        assert!(is_record_not_found(&typed));
+
+        // Generic error-code body form (some PDSes return this).
+        let undefined = Error::XrpcResponse(XrpcError {
+            status: StatusCode::BAD_REQUEST,
+            error: Some(XrpcErrorKind::Undefined(ErrorResponseBody {
+                error: Some("RecordNotFound".into()),
+                message: None,
+            })),
+        });
+        assert!(is_record_not_found(&undefined));
+
+        // A different error is a real failure, not "missing".
+        let other = Error::XrpcResponse(XrpcError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: Some(XrpcErrorKind::Undefined(ErrorResponseBody {
+                error: Some("InternalServerError".into()),
+                message: None,
+            })),
+        });
+        assert!(!is_record_not_found(&other));
     }
 }

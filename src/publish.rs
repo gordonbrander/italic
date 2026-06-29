@@ -13,6 +13,7 @@ pub mod atproto;
 pub mod bsky;
 pub mod config;
 pub mod document;
+pub mod pubstatus;
 pub mod state;
 
 use crate::config::Config;
@@ -312,6 +313,7 @@ async fn bootstrap_publication(
         .await
         .context("publishing site.standard.publication")?;
     state.publication_uri = Some(written.uri.clone());
+    state.publication_cid = Some(written.cid.clone());
     state.save(state_path)?;
     println!("publication: {}", written.uri);
     Ok(written.uri)

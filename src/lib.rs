@@ -48,3 +48,7 @@ pub fn build(include_drafts: bool) -> Result<()> {
 pub fn publish(options: publish::Options) -> Result<()> {
     command::publish::run(options)
 }
+
+pub fn pubstatus(options: publish::pubstatus::Options) -> Result<()> {
+    command::pubstatus::run(options)
+}

@@ -41,6 +41,15 @@ enum Command {
         #[arg(long)]
         bsky_only: bool,
     },
+    /// Check ATProto records on your PDS match local publish state
+    Pubstatus {
+        /// Only check site.standard.document/publication records (skip Bluesky)
+        #[arg(long, conflicts_with = "bsky_only")]
+        documents_only: bool,
+        /// Only check app.bsky.feed.post summaries (skip document records)
+        #[arg(long)]
+        bsky_only: bool,
+    },
     /// Scaffold a starter site at the given path. The path must not already exist.
     New {
         /// Output directory for the scaffolded site
@@ -62,6 +71,13 @@ fn main() -> Result<()> {
             bsky_only,
         } => italic::publish(italic::publish::Options {
             dry_run,
+            documents: !bsky_only,
+            bluesky: !documents_only,
+        }),
+        Command::Pubstatus {
+            documents_only,
+            bsky_only,
+        } => italic::pubstatus(italic::publish::pubstatus::Options {
             documents: !bsky_only,
             bluesky: !documents_only,
         }),
