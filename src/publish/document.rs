@@ -20,6 +20,11 @@ use sha2::{Digest, Sha256};
 pub const DOCUMENT_NSID: &str = "site.standard.document";
 pub const PUBLICATION_NSID: &str = "site.standard.publication";
 
+/// External content lexicon ([markpub.at](https://markpub.at/)) used to carry
+/// the full body as Markdown in the document's `content` open union.
+const MARKDOWN_NSID: &str = "at.markpub.markdown";
+const MARKDOWN_TEXT_NSID: &str = "at.markpub.text";
+
 /// A `com.atproto.repo.strongRef`: a record's AT-URI plus its CID. Used for the
 /// document's `bskyPostRef` cross-link to the announcement post.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -50,6 +55,9 @@ pub struct Document {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_image: Option<BlobRef>,
+    /// Full body as Markdown via the `at.markpub.markdown` open-union entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<MarkdownContent>,
     /// Plaintext rendering of the body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_content: Option<String>,
@@ -57,6 +65,29 @@ pub struct Document {
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bsky_post_ref: Option<StrongRef>,
+}
+
+/// An `at.markpub.markdown` content entry: the full document body as Markdown,
+/// embedded in the document's `content` open union. `flavor`/`renderingRules`
+/// are advisory hints for re-rendering (we run comrak with the GFM extension
+/// set; see [`crate::tera_env`]).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownContent {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    pub flavor: &'static str,
+    pub rendering_rules: &'static str,
+    pub text: MarkdownText,
+}
+
+/// The `at.markpub.text` object nested inside [`MarkdownContent`], holding the
+/// raw Markdown string.
+#[derive(Debug, Clone, Serialize)]
+pub struct MarkdownText {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    pub markdown: String,
 }
 
 /// A `site.standard.publication` record (the site/blog itself).
@@ -148,6 +179,16 @@ pub fn document(
         .get("tags")
         .map(|bucket| bucket.keys().cloned().collect())
         .unwrap_or_default();
+    // Full body as Markdown (Markdown docs only; `None` for Raw/Yaml).
+    let content = doc.markdown.as_ref().map(|md| MarkdownContent {
+        type_: MARKDOWN_NSID,
+        flavor: "gfm",
+        rendering_rules: "comrak",
+        text: MarkdownText {
+            type_: MARKDOWN_TEXT_NSID,
+            markdown: md.clone(),
+        },
+    });
 
     Document {
         type_: DOCUMENT_NSID,
@@ -158,6 +199,7 @@ pub fn document(
         path: Some(canonical_path(doc, base_path)),
         description,
         cover_image: cover,
+        content,
         text_content,
         tags,
         bsky_post_ref,
@@ -214,6 +256,7 @@ mod tests {
             title: "Getting Started".into(),
             summary: "Learn how to publish.".into(),
             content: "<p>Full <em>body</em> text.</p>".into(),
+            markdown: Some("Full *body* text.".into()),
             terms,
             date: at("2024-01-20"),
             updated: at("2024-01-20"),
@@ -287,12 +330,34 @@ mod tests {
         assert_eq!(v["description"], "Learn how to publish.");
         // HTML stripped to plaintext.
         assert_eq!(v["textContent"], "Full body text.");
+        // Full body as a markpub Markdown content-union entry.
+        assert_eq!(v["content"]["$type"], "at.markpub.markdown");
+        assert_eq!(v["content"]["flavor"], "gfm");
+        assert_eq!(v["content"]["renderingRules"], "comrak");
+        assert_eq!(v["content"]["text"]["$type"], "at.markpub.text");
+        assert_eq!(v["content"]["text"]["markdown"], "Full *body* text.");
         // tags come from the `tags` taxonomy bucket keys (sorted).
         assert_eq!(v["tags"], json!(["atproto", "tutorial"]));
         // No updatedAt (updated == date), no coverImage, no bskyPostRef.
         assert!(v.get("updatedAt").is_none());
         assert!(v.get("coverImage").is_none());
         assert!(v.get("bskyPostRef").is_none());
+    }
+
+    #[test]
+    fn document_omits_content_when_no_markdown() {
+        // Raw/Yaml docs carry no Markdown source, so the content union is omitted.
+        let mut d = doc();
+        d.markdown = None;
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+            None,
+        );
+        let v = serde_json::to_value(&rec).unwrap();
+        assert!(v.get("content").is_none());
     }
 
     #[test]

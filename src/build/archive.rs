@@ -394,6 +394,7 @@ fn paginate(
             summary: String::new(),
             draft: false,
             content: archive.body.clone(),
+            markdown: None,
             terms: std::collections::BTreeMap::new(),
             date: epoch(),
             updated: epoch(),

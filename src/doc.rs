@@ -21,6 +21,13 @@ pub struct Doc {
     /// frontmatter only. Serialized for templates as `page.draft`.
     pub draft: bool,
     pub content: String,
+    /// Post-Tera Markdown body (shortcodes/macros expanded — the exact Markdown
+    /// comrak rendered into `content`). Captured during the markup phase for
+    /// Markdown docs only; `None` for Raw/Yaml docs. Used to publish the full
+    /// body via the `at.markpub.markdown` content union. Skipped from serde so
+    /// it doesn't bloat the Tera `page` context — publish reads it directly.
+    #[serde(skip)]
+    pub markdown: Option<String>,
     /// Term memberships, keyed by taxonomy name → (slug → display text). Built
     /// from each taxonomy's frontmatter field (e.g. `tags:`, `categories:`) and,
     /// for the built-in `tags` taxonomy when the `hashtags` config flag is set,
@@ -104,6 +111,7 @@ impl Default for Doc {
             summary: String::new(),
             draft: false,
             content: String::new(),
+            markdown: None,
             terms: BTreeMap::new(),
             date: DateTime::<Utc>::UNIX_EPOCH,
             updated: DateTime::<Utc>::UNIX_EPOCH,
