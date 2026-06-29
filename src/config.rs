@@ -44,6 +44,19 @@ pub enum Feed {
     Collections(Vec<String>),
 }
 
+impl Feed {
+    /// The collection names that get a `/feed/<name>.xml` archive, in config
+    /// order. `Unset` (no feeds resolved yet) and a disabled empty list both
+    /// yield an empty slice. Used by the `feed_links`/`metadata` template filters
+    /// (`src/tera_env/meta.rs`) to emit one `<link rel="alternate">` per feed.
+    pub fn names(&self) -> &[String] {
+        match self {
+            Feed::Unset => &[],
+            Feed::Collections(names) => names,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {

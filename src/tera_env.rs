@@ -19,6 +19,7 @@ mod filter_by_id_path;
 mod filter_in_dir;
 mod macros;
 mod markdown;
+mod meta;
 mod omit_docs;
 mod related;
 mod taxonomy;
@@ -142,6 +143,14 @@ pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera>
     filter_in_dir::register(&mut env);
     omit_docs::register(&mut env);
     markdown::register(&mut env, markup_options(), SYNTECT.clone());
+    // Built-in `<head>` metadata filters (template phase only — they belong in
+    // layouts, not Markdown bodies). Feed names drive the RSS discovery `<link>`s.
+    meta::register(
+        &mut env,
+        config.site_url.clone(),
+        config.base_path.clone(),
+        config.feed.names().to_vec(),
+    );
     Ok(env)
 }
 
@@ -268,6 +277,36 @@ mod tests {
             env.tera
                 .render_str("{{ 'a.md' | backlinks }}", &ctx)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn markup_env_does_not_register_metadata_filters() {
+        // `<head>` metadata filters belong to the template phase only; the markup
+        // (Markdown body) env must not expose them.
+        let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
+        let ctx = tera::Context::new();
+        assert!(
+            env.tera
+                .render_str("{{ page | metadata(site=site) }}", &ctx)
+                .is_err()
+        );
+        assert!(
+            env.tera
+                .render_str("{{ site | feed_links }}", &ctx)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn template_env_registers_metadata_filter() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let mut ctx = tera::Context::new();
+        ctx.insert("site", &serde_json::json!({ "title": "S" }));
+        // `feed_links` over no configured feeds renders empty without erroring.
+        assert_eq!(
+            env.render_str("{{ site | feed_links }}", &ctx).unwrap(),
+            ""
         );
     }
 
