@@ -25,6 +25,7 @@ to a complete reference of every config key and template filter.
 - [Taxonomies & hashtags](guides/taxonomies.md)
 - [Templates](guides/templates.md)
 - [Macros (shortcodes)](guides/macros.md)
+- [Metadata & social cards](guides/metadata.md)
 - [Archives, feeds & sitemaps](guides/archives.md)
 - [Permalinks](guides/permalinks.md)
 - [Aliases (redirects)](guides/aliases.md)
