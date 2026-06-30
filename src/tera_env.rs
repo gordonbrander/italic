@@ -22,6 +22,7 @@ mod markdown;
 mod meta;
 mod omit_docs;
 mod related;
+mod safe_filter;
 mod taxonomy;
 mod text;
 mod url;

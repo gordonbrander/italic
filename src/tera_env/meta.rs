@@ -33,18 +33,24 @@
 //! When `site_url` is `None`, URLs fall back to root-relative — same graceful
 //! degradation as the `url` filters.
 
+use super::safe_filter::SafeFilter;
 use crate::html;
 use crate::permalink;
 use serde_json::{Map, Value as Json};
 use std::collections::HashMap;
 use std::path::Path;
-use tera::{Filter, Tera, Value};
+use tera::{Tera, Value};
 
 /// `<meta name="generator">` content — the engine and its version, from Cargo.
 const GENERATOR: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 /// Register every metadata filter on the template env, capturing the site origin,
 /// base path, and configured feed names for absolute-URL/feed composition.
+///
+/// Each filter pipes its primary subject (`page`, or `site` for `feed_links`) and
+/// reads `site=`/`type=` kwargs via [`site_arg`]/[`type_arg`]; the rendering lives
+/// in the `render_*` functions below. [`SafeFilter`] is the only adapter needed —
+/// it makes each closure a *safe* filter so its markup isn't autoescaped.
 pub fn register(
     env: &mut Tera,
     site_url: Option<String>,
@@ -56,33 +62,71 @@ pub fn register(
         base_path,
         feed_names,
     };
-    env.register_filter("metadata", MetaFilter::new(Kind::Metadata, cfg.clone()));
+
+    let c = cfg.clone();
+    env.register_filter(
+        "metadata",
+        SafeFilter(move |page: &Value, args: &Kwargs| {
+            render_metadata(page, site_arg(args), type_arg(args), &c)
+        }),
+    );
+
     env.register_filter(
         "meta_description",
-        MetaFilter::new(Kind::Description, cfg.clone()),
+        SafeFilter(|page: &Value, args: &Kwargs| join(render_description(page, site_arg(args)))),
     );
+
     env.register_filter(
         "meta_keywords",
-        MetaFilter::new(Kind::Keywords, cfg.clone()),
+        SafeFilter(|page: &Value, _args: &Kwargs| join(render_keywords(page))),
     );
+
+    let c = cfg.clone();
     env.register_filter(
         "canonical_link",
-        MetaFilter::new(Kind::Canonical, cfg.clone()),
+        SafeFilter(move |page: &Value, _args: &Kwargs| join(render_canonical(page, &c))),
     );
-    env.register_filter("open_graph", MetaFilter::new(Kind::OpenGraph, cfg.clone()));
+
+    let c = cfg.clone();
+    env.register_filter(
+        "open_graph",
+        SafeFilter(move |page: &Value, args: &Kwargs| {
+            join(render_open_graph(page, site_arg(args), type_arg(args), &c))
+        }),
+    );
+
+    let c = cfg.clone();
     env.register_filter(
         "twitter_card",
-        MetaFilter::new(Kind::TwitterCard, cfg.clone()),
+        SafeFilter(move |page: &Value, args: &Kwargs| {
+            join(render_twitter_card(page, site_arg(args), &c))
+        }),
     );
-    env.register_filter("json_ld", MetaFilter::new(Kind::JsonLd, cfg.clone()));
+
+    let c = cfg.clone();
+    env.register_filter(
+        "json_ld",
+        SafeFilter(move |page: &Value, args: &Kwargs| {
+            render_json_ld(page, site_arg(args), type_arg(args), &c)
+        }),
+    );
+
     env.register_filter(
         "system_meta",
-        MetaFilter::new(Kind::SystemMeta, cfg.clone()),
+        SafeFilter(|_page: &Value, _args: &Kwargs| join(render_system_meta())),
     );
-    env.register_filter("feed_links", MetaFilter::new(Kind::FeedLinks, cfg));
+
+    // `feed_links` pipes `site` (not `page`); it's the last user of `cfg`.
+    env.register_filter(
+        "feed_links",
+        SafeFilter(move |site: &Value, _args: &Kwargs| render_feed_links(site, &cfg)),
+    );
 }
 
-/// Config captured once at registration and shared by every filter.
+/// A Tera filter's keyword arguments.
+type Kwargs = HashMap<String, Value>;
+
+/// Config captured once at registration and shared by the filter closures.
 #[derive(Clone)]
 struct MetaCfg {
     site_url: Option<String>,
@@ -90,61 +134,18 @@ struct MetaCfg {
     feed_names: Vec<String>,
 }
 
-/// Which block a `MetaFilter` renders. One struct backs every filter so they share
-/// the captured `MetaCfg` and the value-reading helpers below.
-#[derive(Clone, Copy)]
-enum Kind {
-    Metadata,
-    Description,
-    Keywords,
-    Canonical,
-    OpenGraph,
-    TwitterCard,
-    JsonLd,
-    SystemMeta,
-    FeedLinks,
+/// The `site=` kwarg, or a `Null` placeholder so `field(site, …)` lookups just
+/// miss (used by every filter that takes `site` as a kwarg rather than the pipe).
+fn site_arg(args: &Kwargs) -> &Value {
+    static NULL: Value = Value::Null;
+    args.get("site").unwrap_or(&NULL)
 }
 
-struct MetaFilter {
-    kind: Kind,
-    cfg: MetaCfg,
-}
-
-impl MetaFilter {
-    fn new(kind: Kind, cfg: MetaCfg) -> Self {
-        Self { kind, cfg }
-    }
-}
-
-impl Filter for MetaFilter {
-    fn filter(&self, value: &Value, args: &HashMap<String, Value>) -> tera::Result<Value> {
-        let null = Value::Null;
-        let site = args.get("site").unwrap_or(&null);
-        let og_type = args
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("article");
-        let out = match self.kind {
-            // `metadata`/`feed_links` need only one of page/site; the rest pipe
-            // `page` and take `site` as a kwarg.
-            Kind::FeedLinks => render_feed_links(value, &self.cfg),
-            Kind::Description => join(render_description(value, site)),
-            Kind::Keywords => join(render_keywords(value)),
-            Kind::Canonical => join(render_canonical(value, &self.cfg)),
-            Kind::OpenGraph => join(render_open_graph(value, site, og_type, &self.cfg)),
-            Kind::TwitterCard => join(render_twitter_card(value, site, &self.cfg)),
-            Kind::JsonLd => render_json_ld(value, site, og_type, &self.cfg),
-            Kind::SystemMeta => join(render_system_meta()),
-            Kind::Metadata => render_metadata(value, site, og_type, &self.cfg),
-        };
-        Ok(Value::String(out))
-    }
-
-    /// Output is trusted markup, not text: do not let `.html`/`.xml` autoescape
-    /// turn `<meta>` into `&lt;meta&gt;`.
-    fn is_safe(&self) -> bool {
-        true
-    }
+/// The `type=` kwarg (`og:type` / JSON-LD `@type`), defaulting to `"article"`.
+fn type_arg(args: &Kwargs) -> &str {
+    args.get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("article")
 }
 
 // ---------------------------------------------------------------------------
