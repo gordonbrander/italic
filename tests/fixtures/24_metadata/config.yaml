@@ -1,0 +1,14 @@
+site:
+  title: Meta Demo
+  description: Demonstrating built-in metadata helpers.
+  author: Ada Lovelace
+  twitter: "@metademo"
+  locale: en_US
+  image: /img/default.png
+  url: https://example.com
+
+# Keep this fixture focused on the metadata filters: disable the auto sitemap,
+# keep a single `all` feed so `feed_links`/`metadata` emit one discovery <link>.
+sitemap:
+feed:
+  - all
