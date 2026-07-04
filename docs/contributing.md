@@ -16,14 +16,17 @@ cargo test
 
 ```
 src/
-  main.rs          # CLI (clap) — the six subcommands
+  main.rs          # CLI (clap) — the subcommands
   config.rs        # config.yaml parsing, defaults, theme merging
   doc.rs           # the Doc type; frontmatter uplift
   permalink.rs     # permalink patterns, pagination URLs
   build.rs         # the pipeline driver — start here
   build/           # one module per stage: read, classify, defaults,
                    #   markup (incl. wikilink resolution), archive,
-                   #   template, write, static_copy
+                   #   template, write, static_copy; plus the standard.site
+                   #   verification artifacts (well_known, standard_link)
+  publish.rs       # `italic publish`: sync to an ATProto PDS (networked)
+  publish/         # atproto client+auth, state file, document records
   tera_env.rs      # Tera environment assembly
   tera_env/        # one module per custom function/filter
 scaffold/          # site skeleton emitted by `italic new`

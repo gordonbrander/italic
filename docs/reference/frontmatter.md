@@ -81,6 +81,26 @@ redirect page at that path. A trailing slash or extension-less entry writes
 `index.html` in that directory; an entry with an extension is written as that
 literal file. See the [Aliases guide](../guides/aliases.md).
 
+## ATProto publishing keys
+
+These keys only matter when you run [`italic publish`](../guides/publishing-atproto.md);
+they have no effect on a normal build.
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `cover` | string (path) | none | Image uploaded as the document's `coverImage` blob. |
+
+```yaml
+---
+title: A Quiet Note
+cover: static/covers/quiet.jpg
+---
+```
+
+After publishing, each document's standard.site AT-URI is exposed to templates
+as `page.data.atproto_uri`, for emitting the verification `<link>` tag. See the
+[Publishing guide](../guides/publishing-atproto.md#verification-artifacts).
+
 ## Setting defaults per collection
 
 Rather than repeating frontmatter on every file, set collection-wide defaults

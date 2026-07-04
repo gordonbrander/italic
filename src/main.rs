@@ -29,6 +29,14 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1")]
         host: IpAddr,
     },
+    /// Publish standard.site document records to an ATProto PDS
+    Publish {
+        /// Build records and show what would change, but make no network calls
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Check ATProto records on your PDS match local publish state
+    Pubstatus,
     /// Scaffold a starter site at the given path. The path must not already exist.
     New {
         /// Output directory for the scaffolded site
@@ -44,6 +52,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Build { drafts } => italic::build(drafts),
+        Command::Publish { dry_run } => italic::publish(italic::publish::Options { dry_run }),
+        Command::Pubstatus => italic::pubstatus(),
         Command::Watch => italic::watch(),
         Command::Serve { port, host } => italic::serve(host, port),
         Command::New { path } => italic::new(&path),

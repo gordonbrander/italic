@@ -216,6 +216,46 @@ Override any feed's markup with a disk archive at the matching path (e.g.
 `collections:`. Feeds cap at the 25 most recent items per the collection's own
 order.
 
+## `publish`
+
+Non-secret settings for `italic publish`, which syncs your site to an ATProto
+PDS as [standard.site](https://standard.site/) documents. Absent by default —
+without a `publish:` block, `italic publish`
+errors. **Secrets never go here**: your app password comes from the environment
+(`ITALIC_ATPROTO_APP_PASSWORD`), and your handle may too
+(`ITALIC_ATPROTO_HANDLE`). Unknown keys (in the block or its sub-maps) are an
+error. See the
+[Publishing guide](../guides/publishing-atproto.md).
+
+```yaml
+publish:
+  pds_host: https://bsky.social   # optional
+  handle: alice.example.com       # optional here; usually set via env
+  collection: posts               # which collection becomes documents
+  verification: true              # emit the .well-known + <link> proofs
+  publication:
+    name: My Garden               # required to publish the publication record
+    url: https://example.com      # required — where your HTML actually lives
+    description: A digital garden.
+    icon: static/icon.png         # uploaded as a blob
+```
+
+Top-level keys:
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `pds_host` | string | `https://bsky.social` | PDS XRPC host. |
+| `handle` | string | none | Account handle. Overridden by `ITALIC_ATPROTO_HANDLE`. |
+| `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
+| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). |
+| `publication` | mapping | — | The `site.standard.publication` record metadata. |
+
+`publication` keys: `name` and `url` (both required to publish), `description`,
+and `icon` (a path uploaded as a blob).
+
+The secret/handle/host resolution and the state file are covered in the
+[Publishing guide](../guides/publishing-atproto.md).
+
 ## Theme config merging
 
 When `theme:` is set, the theme's own `config.yaml` is loaded and layered

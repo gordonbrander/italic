@@ -1,6 +1,6 @@
 # CLI reference
 
-The `italic` binary has six subcommands. Run `italic --help` or
+The `italic` binary has the following subcommands. Run `italic --help` or
 `italic <command> --help` for the same information at the terminal.
 
 ## `italic build`
@@ -46,6 +46,48 @@ the output directory.
 ```sh
 italic watch
 ```
+
+## `italic publish`
+
+Build the site and sync it to your ATProto PDS as standard.site documents.
+Unlike the other commands this one is networked, stateful, and authenticated,
+and it writes **no HTML** — it reuses the build only to obtain your rendered
+documents. Requires a [`publish:`](config.md#publish) block and credentials
+(see the [Publishing guide](../guides/publishing-atproto.md)).
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--dry-run` | off | Build records and report what would change, making no network calls. |
+
+Drafts are never published (the build runs with drafts excluded). The app
+password comes from the environment (`ITALIC_ATPROTO_APP_PASSWORD`) — never
+`config.yaml`.
+
+```sh
+italic publish --dry-run   # preview — safe, no network
+italic publish             # sync document + publication records
+```
+
+## `italic pubstatus`
+
+Read back the records `italic publish` wrote and confirm they still exist on your
+PDS and match local state. Networked, authenticated, and **read-only** — it never
+writes a record or touches the state file. Unlike `publish` it does **not** build
+the site, so it works even while your content is mid-edit. Requires a
+[`publish:`](config.md#publish) block, credentials, and a prior `publish` (it
+checks what's recorded in `.italic/atproto.yaml`).
+
+For each recorded record it reports `ok` (present, content hash matches),
+`CHANGED` (present, but the live CID differs — edited or re-written since publish),
+or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
+nonzero**, so it can gate a CI step.
+
+```sh
+italic pubstatus   # check every published record
+```
+
+See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,
+including manual verification with `curl`.
 
 ## `italic new <path>`
 

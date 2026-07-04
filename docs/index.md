@@ -33,6 +33,8 @@ to a complete reference of every config key and template filter.
 - [Themes](guides/themes.md)
 - [Data files](guides/data.md)
 - [Deployment](guides/deployment.md)
+- [Publishing to the ATmosphere](guides/publishing-atproto.md)
+- [Verifying ATProto records](guides/verifying-atproto.md)
 - [Migrating to italic](guides/migration.md)
 
 ## Reference

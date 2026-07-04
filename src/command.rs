@@ -4,6 +4,8 @@
 
 pub mod clean;
 pub mod new;
+pub mod publish;
+pub mod pubstatus;
 pub mod scaffold;
 pub mod serve;
 pub mod watch;
