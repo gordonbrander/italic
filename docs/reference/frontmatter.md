@@ -81,23 +81,19 @@ redirect page at that path. A trailing slash or extension-less entry writes
 `index.html` in that directory; an entry with an extension is written as that
 literal file. See the [Aliases guide](../guides/aliases.md).
 
-## Bluesky publishing keys
+## ATProto publishing keys
 
 These keys only matter when you run [`italic publish`](../guides/publishing-atproto.md);
 they have no effect on a normal build.
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `cover` | string (path) | none | Image uploaded as the document's `coverImage` blob and, when `thumb: cover`, the Bluesky link-card thumbnail. |
-| `bsky` | bool | `true` | Set `false` to never announce this post on Bluesky. |
-| `bsky_text` | string | none | Override the announcement text for this post (wins over `post_template`/`summary`). |
+| `cover` | string (path) | none | Image uploaded as the document's `coverImage` blob. |
 
 ```yaml
 ---
 title: A Quiet Note
 cover: static/covers/quiet.jpg
-bsky: false          # don't announce this one
-# bsky_text: "New →" # …or customize the announcement
 ---
 ```
 

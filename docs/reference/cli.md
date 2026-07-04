@@ -49,27 +49,23 @@ italic watch
 
 ## `italic publish`
 
-Build the site and sync it to your ATProto PDS as standard.site documents and
-(optionally) Bluesky summaries. Unlike the other commands this one is networked,
-stateful, and authenticated, and it writes **no HTML** — it reuses the build only
-to obtain your rendered documents. Requires a [`publish:`](config.md#publish)
-block and credentials (see the
-[Publishing guide](../guides/publishing-atproto.md)).
+Build the site and sync it to your ATProto PDS as standard.site documents.
+Unlike the other commands this one is networked, stateful, and authenticated,
+and it writes **no HTML** — it reuses the build only to obtain your rendered
+documents. Requires a [`publish:`](config.md#publish) block and credentials
+(see the [Publishing guide](../guides/publishing-atproto.md)).
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--dry-run` | off | Build records and report what would change, making no network calls. |
-| `--documents-only` | off | Sync only `site.standard.document`/`publication` records (skip Bluesky). |
-| `--bsky-only` | off | Create only `app.bsky.feed.post` summaries (skip document records). |
 
 Drafts are never published (the build runs with drafts excluded). The app
 password comes from the environment (`ITALIC_ATPROTO_APP_PASSWORD`) — never
 `config.yaml`.
 
 ```sh
-italic publish --dry-run        # preview — safe, no network
-italic publish                  # documents + (if enabled) Bluesky summaries
-italic publish --documents-only # long-form records only
+italic publish --dry-run   # preview — safe, no network
+italic publish             # sync document + publication records
 ```
 
 ## `italic pubstatus`
@@ -86,14 +82,8 @@ For each recorded record it reports `ok` (present, content hash matches),
 or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
 nonzero**, so it can gate a CI step.
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--documents-only` | off | Check only `site.standard.document`/`publication` records (skip Bluesky). |
-| `--bsky-only` | off | Check only `app.bsky.feed.post` summaries (skip document records). |
-
 ```sh
-italic pubstatus                   # check every published record
-italic pubstatus --documents-only  # long-form records only
+italic pubstatus   # check every published record
 ```
 
 See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,

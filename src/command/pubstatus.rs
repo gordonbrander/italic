@@ -7,11 +7,11 @@
 //! still works while your content is mid-edit.
 
 use crate::config::Config;
-use crate::publish::pubstatus::{self, Options};
+use crate::publish::pubstatus;
 use anyhow::Result;
 use std::path::Path;
 
-pub fn run(options: Options) -> Result<()> {
+pub fn run() -> Result<()> {
     let (config, _theme) = Config::load_with_theme(Path::new("config.yaml"))?;
-    pubstatus::run(&config, options)
+    pubstatus::run(&config)
 }

@@ -29,27 +29,14 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1")]
         host: IpAddr,
     },
-    /// Publish to an ATProto PDS (standard.site documents + Bluesky summaries)
+    /// Publish standard.site document records to an ATProto PDS
     Publish {
         /// Build records and show what would change, but make no network calls
         #[arg(long)]
         dry_run: bool,
-        /// Only sync site.standard.document/publication records (skip Bluesky)
-        #[arg(long, conflicts_with = "bsky_only")]
-        documents_only: bool,
-        /// Only create app.bsky.feed.post summaries (skip document records)
-        #[arg(long)]
-        bsky_only: bool,
     },
     /// Check ATProto records on your PDS match local publish state
-    Pubstatus {
-        /// Only check site.standard.document/publication records (skip Bluesky)
-        #[arg(long, conflicts_with = "bsky_only")]
-        documents_only: bool,
-        /// Only check app.bsky.feed.post summaries (skip document records)
-        #[arg(long)]
-        bsky_only: bool,
-    },
+    Pubstatus,
     /// Scaffold a starter site at the given path. The path must not already exist.
     New {
         /// Output directory for the scaffolded site
@@ -65,22 +52,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Build { drafts } => italic::build(drafts),
-        Command::Publish {
-            dry_run,
-            documents_only,
-            bsky_only,
-        } => italic::publish(italic::publish::Options {
-            dry_run,
-            documents: !bsky_only,
-            bluesky: !documents_only,
-        }),
-        Command::Pubstatus {
-            documents_only,
-            bsky_only,
-        } => italic::pubstatus(italic::publish::pubstatus::Options {
-            documents: !bsky_only,
-            bluesky: !documents_only,
-        }),
+        Command::Publish { dry_run } => italic::publish(italic::publish::Options { dry_run }),
+        Command::Pubstatus => italic::pubstatus(),
         Command::Watch => italic::watch(),
         Command::Serve { port, host } => italic::serve(host, port),
         Command::New { path } => italic::new(&path),

@@ -49,6 +49,6 @@ pub fn publish(options: publish::Options) -> Result<()> {
     command::publish::run(options)
 }
 
-pub fn pubstatus(options: publish::pubstatus::Options) -> Result<()> {
-    command::pubstatus::run(options)
+pub fn pubstatus() -> Result<()> {
+    command::pubstatus::run()
 }

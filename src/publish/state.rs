@@ -6,14 +6,9 @@
 //! so re-running *updates* records via `putRecord` instead of duplicating them.
 //!
 //! It is serialized as YAML so users can read and hand-edit it — to inspect what
-//! was published, fix a bad entry, or recover.
-//!
-//! It is load-bearing for **correctness**, not just efficiency: `app.bsky.feed.post`
-//! records are create-once (server-assigned TID rkeys, treated as immutable by
-//! clients), so the only thing preventing a duplicate post on the next run is the
-//! `bsky` entry recorded here. Lose the file and you risk re-announcing every post.
-//! Document rkeys, by contrast, are a hash of the canonical URL and so are
-//! reconstructible from config + the doc's output path.
+//! was published, fix a bad entry, or recover. Document rkeys are a hash of the
+//! canonical URL and so are reconstructible from config + the doc's output path
+//! even if the file is lost.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -37,14 +32,11 @@ pub struct RecordRef {
     pub uri: String,
 }
 
-/// Per-doc record bookkeeping: the long-form document record and the optional
-/// Bluesky announcement post.
+/// Per-doc record bookkeeping: the long-form document record.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocRecords {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document: Option<RecordRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bsky: Option<RecordRef>,
 }
 
 /// The whole sidecar. `records` is keyed by `id_path` (as a string for stable
@@ -70,7 +62,7 @@ pub struct State {
 impl State {
     /// Load the state file, or return an empty state if it doesn't exist yet
     /// (first publish). A present-but-corrupt file is a hard error rather than a
-    /// silent reset, since resetting risks duplicate Bluesky posts.
+    /// silent reset, since a reset would hide what was already published.
     pub fn load(path: &Path) -> Result<State> {
         if !path.exists() {
             return Ok(State::default());
@@ -138,11 +130,6 @@ mod tests {
             cid: "bafyrei".into(),
             uri: "at://did:plc:abc/site.standard.document/hello".into(),
         });
-        s.doc_mut(Path::new("posts/hello.md")).bsky = Some(RecordRef {
-            rkey: "3lwa".into(),
-            cid: "bafycid".into(),
-            uri: "at://did:plc:abc/app.bsky.feed.post/3lwa".into(),
-        });
         s.save(&path).unwrap();
 
         let loaded = State::load(&path).unwrap();
@@ -174,9 +161,8 @@ mod tests {
         s.doc_mut(Path::new("a.md")).document = Some(RecordRef::default());
         assert!(s.doc(Path::new("a.md")).unwrap().document.is_some());
         // Second access reuses the same entry.
-        s.doc_mut(Path::new("a.md")).bsky = Some(RecordRef::default());
-        let d = s.doc(Path::new("a.md")).unwrap();
-        assert!(d.document.is_some() && d.bsky.is_some());
+        s.doc_mut(Path::new("a.md")).document = Some(RecordRef::default());
         assert_eq!(s.records.len(), 1);
     }
+
 }

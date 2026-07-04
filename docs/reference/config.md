@@ -219,8 +219,8 @@ order.
 ## `publish`
 
 Non-secret settings for `italic publish`, which syncs your site to an ATProto
-PDS as [standard.site](https://standard.site/) documents and optional Bluesky
-summaries. Absent by default — without a `publish:` block, `italic publish`
+PDS as [standard.site](https://standard.site/) documents. Absent by default —
+without a `publish:` block, `italic publish`
 errors. **Secrets never go here**: your app password comes from the environment
 (`ITALIC_ATPROTO_APP_PASSWORD`), and your handle may too
 (`ITALIC_ATPROTO_HANDLE`). Unknown keys (in the block or its sub-maps) are an
@@ -238,13 +238,6 @@ publish:
     url: https://example.com      # required — where your HTML actually lives
     description: A digital garden.
     icon: static/icon.png         # uploaded as a blob
-  bluesky:
-    enabled: false
-    collection: posts             # defaults to publish.collection
-    post_template: "{{ title }} — {{ summary }}"
-    include_link_card: true
-    thumb: cover                  # cover | none
-    announce_after: 2026-01-01    # only announce posts on/after this date
 ```
 
 Top-level keys:
@@ -256,21 +249,9 @@ Top-level keys:
 | `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
 | `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). |
 | `publication` | mapping | — | The `site.standard.publication` record metadata. |
-| `bluesky` | mapping | — | Bluesky summary settings. |
 
 `publication` keys: `name` and `url` (both required to publish), `description`,
 and `icon` (a path uploaded as a blob).
-
-`bluesky` keys:
-
-| Key | Type | Default | Meaning |
-|-----|------|---------|---------|
-| `enabled` | bool | `false` | Create `app.bsky.feed.post` summaries. |
-| `collection` | string | `publish.collection` | Collection to announce. Must be declared. |
-| `post_template` | string | none | Tera template for the post text (`title`/`summary` in scope); defaults to the summary. |
-| `include_link_card` | bool | `true` | Attach an `app.bsky.embed.external` link card to the article. |
-| `thumb` | `cover` \| `none` | `cover` | Link-card thumbnail source (reuses the doc's `cover` image). |
-| `announce_after` | date | none | Skip posts dated before this — useful to avoid flooding the firehose on a first run. |
 
 The secret/handle/host resolution and the state file are covered in the
 [Publishing guide](../guides/publishing-atproto.md).

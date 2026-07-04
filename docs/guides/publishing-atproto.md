@@ -1,20 +1,14 @@
-# Publishing to Bluesky & the ATmosphere
+# Publishing to the ATmosphere
 
 italic can publish your site to your [ATProto](https://atproto.com/) Personal
-Data Server (PDS) — the same account server that backs your Bluesky handle. Two
-related things ship:
-
-1. **Long-form documents** — each post becomes a
-   [`site.standard.document`](https://standard.site/docs/lexicons/document)
-   record (the [standard.site](https://standard.site/) long-form lexicon), under
-   one [`site.standard.publication`](https://standard.site/docs/lexicons/publication)
-   record that represents your site. Other ATProto apps (Leaflet, Pckt,
-   Offprint, AppViews) can then discover, index, recommend, and port your
-   writing.
-2. **Bluesky summaries** — optionally, each post also gets a short
-   [`app.bsky.feed.post`](https://docs.bsky.app/docs/api/app-bsky-feed-post): a
-   teaser with a link card back to the canonical article, announced to your
-   followers.
+Data Server (PDS) — the same account server that backs your Bluesky handle.
+Each post becomes a
+[`site.standard.document`](https://standard.site/docs/lexicons/document)
+record (the [standard.site](https://standard.site/) long-form lexicon), under
+one [`site.standard.publication`](https://standard.site/docs/lexicons/publication)
+record that represents your site. Other ATProto apps (Leaflet, Pckt,
+Offprint, AppViews) can then discover, index, recommend, and port your
+writing.
 
 **italic stays a static generator.** Publishing is a *client* operation — it
 writes records into a PDS you already own — not a server you have to run. Keep
@@ -99,22 +93,18 @@ export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ## The state file
 
 italic records what it published in `.italic/atproto.yaml`: the publication's
-AT-URI, your account DID, and a per-document map of `id_path → { document, bsky }`
+AT-URI, your account DID, and a per-document map of `id_path → { document }`
 record keys and CIDs. It's plain, human-readable YAML — you can open it to inspect
 what was published, or hand-edit an entry to recover from a mistake.
 
-This file is **load-bearing for correctness**, not just speed:
+Documents use stable record keys derived from their canonical URL, so they
+update in place (`putRecord`) every run — and the keys are reconstructible from
+config + content even if the state file is lost. The state file mainly lets
+`pubstatus` verify what's on the PDS against what was last published.
 
-- **Documents** use stable, slug-derived record keys, so they update in place
-  (`putRecord`) every run — reconstructible even if the state is lost.
-- **Bluesky posts** are create-once. The post entry in the state file is the
-  *only* thing that stops a re-run from posting the same announcement again.
-  Lose the file and you risk re-announcing every post.
-
-So keep `.italic/atproto.yaml` — commit it to a private repo, or back it up.
-Don't commit it to a public one (it isn't secret, but it's noise). It is written
-incrementally, after each record, so an interrupted run never loses a post it
-already created.
+Keep `.italic/atproto.yaml` out of public repos (it isn't secret, but it's
+noise). It is written incrementally, after each record, so an interrupted run
+never loses track of what it already wrote.
 
 ## Publishing full posts
 
@@ -136,64 +126,6 @@ fields — no new content modeling:
 The **publication** record comes from `publish.publication` — `name` and `url`
 are required to publish it (the build fails loudly if either is missing). An
 optional `icon:` path is uploaded as a blob.
-
-## Publishing Bluesky posts
-
-Turn announcements on under `publish.bluesky`:
-
-```yaml
-publish:
-  collection: posts
-  publication:
-    name: My Garden
-    url: https://example.com
-  bluesky:
-    enabled: true
-    post_template: "{{ title }} — {{ summary }}"
-    include_link_card: true
-    thumb: cover               # cover | none
-    announce_after: 2026-01-01 # skip older posts on a first run
-```
-
-For each eligible post italic creates an `app.bsky.feed.post` with an
-`app.bsky.embed.external` **link card** pointing at the canonical article
-(`uri` + `title` + `description`, plus an optional thumbnail). The post is tied
-back to the long-form record via the document's `bskyPostRef`, so a reader who
-lands on either can find the other.
-
-### Post text
-
-The text comes from, in order:
-
-1. a per-post `bsky_text:` frontmatter override, else
-2. the `post_template` (a small [Tera](https://keats.github.io/tera/) string with
-   `title` and `summary` in scope), else
-3. the post's `summary`.
-
-Bluesky caps post text at **300 graphemes** (not bytes), so longer text is
-truncated with an ellipsis on a grapheme boundary — emoji and combining
-sequences are never split. The article link lives in the embed card, not the
-text, so no facets are needed.
-
-### Create-once
-
-Bluesky posts are treated as roughly immutable by clients, so italic's contract
-is **create the announcement once, never repost**. A post already recorded in
-the state file is skipped on later runs. (Editing a post on a later run is a
-possible future enhancement.)
-
-### Per-post control
-
-Two frontmatter keys override the defaults on a single post:
-
-```yaml
----
-title: A Quiet Note
-bsky: false                       # never announce this post
-# or:
-bsky_text: "New: A Quiet Note →"  # custom announcement text
----
-```
 
 ## Verification artifacts
 
@@ -219,28 +151,23 @@ publishing assigns:
 So the recommended flow is: `italic publish` once (to mint the records and write
 state), then `italic build` (to emit the proofs), then deploy your HTML.
 
-## Selective and partial runs
+## Previewing a run
 
 ```sh
-italic publish --dry-run          # build records, diff against state, no network
-italic publish --documents-only   # site.standard.document/publication only
-italic publish --bsky-only        # app.bsky.feed.post summaries only
+italic publish --dry-run   # build records, diff against state, no network
 ```
 
 `--dry-run` is the safe preview — it renders every record and reports what it
-would *create* vs. *update* (and which posts it would skip as already-announced)
-without touching the network. Reach for it whenever you change config or
-templates.
+would *create* vs. *update* without touching the network. Reach for it whenever
+you change config or templates.
 
 Drafts are never published: `publish` builds with drafts excluded, so a
 `draft: true` post stays out of the PDS just as it stays out of `italic build`.
 
 ## Rate limits
 
-A first publish of a large site creates many records at once, and Bluesky
-enforces write rate limits. italic spaces out writes with a small throttle, and
-`bluesky.announce_after` lets you cap a first run to recent posts so you don't
-flood your followers' feeds with your entire back catalogue.
+A first publish of a large site creates many records at once, and PDS hosts
+enforce write rate limits. italic spaces out writes with a small throttle.
 
 ## Configuration summary
 
@@ -258,19 +185,11 @@ publish:
     url: https://example.com      # required to publish
     description: A digital garden.
     icon: static/icon.png
-  bluesky:
-    enabled: false
-    collection: posts             # defaults to publish.collection
-    post_template: "{{ title }} — {{ summary }}"
-    include_link_card: true
-    thumb: cover                  # cover | none
-    announce_after: 2026-01-01
 ```
 
 ## See also
 
 - [CLI reference](../reference/cli.md#italic-publish) — the `publish` command and its flags
 - [Configuration reference](../reference/config.md#publish) — every `publish:` key
-- [Frontmatter reference](../reference/frontmatter.md#bluesky-publishing-keys) — `bsky`, `bsky_text`, `cover`
 - [Deployment](deployment.md) — hosting your static HTML
-- [standard.site](https://standard.site/) · [Bluesky API](https://docs.bsky.app/)
+- [standard.site](https://standard.site/)

@@ -1,5 +1,5 @@
 //! Hand-rolled `site.standard.document` / `site.standard.publication` record
-//! types and the `Doc`/config → record mapping (feature 1).
+//! types and the `Doc`/config → record mapping.
 //!
 //! The `site.standard.*` lexicons have no canonical Rust types in `atrium-api`,
 //! and the record set is small, so we serialize plain serde structs to the
@@ -24,14 +24,6 @@ pub const PUBLICATION_NSID: &str = "site.standard.publication";
 /// the full body as Markdown in the document's `content` open union.
 const MARKDOWN_NSID: &str = "at.markpub.markdown";
 const MARKDOWN_TEXT_NSID: &str = "at.markpub.text";
-
-/// A `com.atproto.repo.strongRef`: a record's AT-URI plus its CID. Used for the
-/// document's `bskyPostRef` cross-link to the announcement post.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct StrongRef {
-    pub uri: String,
-    pub cid: String,
-}
 
 /// A `site.standard.document` record. Fields map directly from a [`Doc`]; see
 /// [`document`].
@@ -63,8 +55,6 @@ pub struct Document {
     pub text_content: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bsky_post_ref: Option<StrongRef>,
 }
 
 /// An `at.markpub.markdown` content entry: the full document body as Markdown,
@@ -133,8 +123,8 @@ pub fn canonical_path(doc: &Doc, base_path: &str) -> String {
     format!("{}{}", base_path, permalink::to_url(&doc.output_path))
 }
 
-/// Full canonical URL for a doc, e.g. `https://example.com/blog/post/`. Used by
-/// the bsky link card. `site_url` should have no trailing slash (as normalized by
+/// Full canonical URL for a doc, e.g. `https://example.com/blog/post/`.
+/// `site_url` should have no trailing slash (as normalized by
 /// [`crate::config`]); falls back to the root-relative path when absent.
 pub fn canonical_url(doc: &Doc, site_url: Option<&str>, base_path: &str) -> String {
     let path = canonical_path(doc, base_path);
@@ -149,15 +139,8 @@ fn rfc3339(dt: &chrono::DateTime<chrono::Utc>) -> String {
 }
 
 /// Map a [`Doc`] to a `site.standard.document` record. `site_uri` is the
-/// publication AT-URI; `cover` is the pre-uploaded cover blob (if any);
-/// `bsky_post_ref` cross-links the announcement post (feature 2, else `None`).
-pub fn document(
-    doc: &Doc,
-    site_uri: &str,
-    base_path: &str,
-    cover: Option<BlobRef>,
-    bsky_post_ref: Option<StrongRef>,
-) -> Document {
+/// publication AT-URI; `cover` is the pre-uploaded cover blob (if any).
+pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRef>) -> Document {
     let text = html::strip_tags(&doc.content);
     let text_content = if text.trim().is_empty() {
         None
@@ -202,7 +185,6 @@ pub fn document(
         content,
         text_content,
         tags,
-        bsky_post_ref,
     }
 }
 
@@ -314,13 +296,7 @@ mod tests {
     #[test]
     fn document_serializes_to_lexicon_shape() {
         let d = doc();
-        let rec = document(
-            &d,
-            "at://did:plc:abc/site.standard.publication/self",
-            "",
-            None,
-            None,
-        );
+        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["$type"], "site.standard.document");
         assert_eq!(v["site"], "at://did:plc:abc/site.standard.publication/self");
@@ -338,10 +314,9 @@ mod tests {
         assert_eq!(v["content"]["text"]["markdown"], "Full *body* text.");
         // tags come from the `tags` taxonomy bucket keys (sorted).
         assert_eq!(v["tags"], json!(["atproto", "tutorial"]));
-        // No updatedAt (updated == date), no coverImage, no bskyPostRef.
+        // No updatedAt (updated == date), no coverImage.
         assert!(v.get("updatedAt").is_none());
         assert!(v.get("coverImage").is_none());
-        assert!(v.get("bskyPostRef").is_none());
     }
 
     #[test]
@@ -349,38 +324,18 @@ mod tests {
         // Raw/Yaml docs carry no Markdown source, so the content union is omitted.
         let mut d = doc();
         d.markdown = None;
-        let rec = document(
-            &d,
-            "at://did:plc:abc/site.standard.publication/self",
-            "",
-            None,
-            None,
-        );
+        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
         let v = serde_json::to_value(&rec).unwrap();
         assert!(v.get("content").is_none());
     }
 
     #[test]
-    fn document_includes_updated_and_bsky_ref_when_present() {
+    fn document_includes_updated_when_later_than_published() {
         let mut d = doc();
         d.updated = at("2024-02-01");
-        let rec = document(
-            &d,
-            "at://did:plc:abc/site.standard.publication/self",
-            "",
-            None,
-            Some(StrongRef {
-                uri: "at://did:plc:abc/app.bsky.feed.post/3lwa".into(),
-                cid: "bafycid".into(),
-            }),
-        );
+        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["updatedAt"], "2024-02-01T14:30:00.000Z");
-        assert_eq!(
-            v["bskyPostRef"]["uri"],
-            "at://did:plc:abc/app.bsky.feed.post/3lwa"
-        );
-        assert_eq!(v["bskyPostRef"]["cid"], "bafycid");
     }
 
     #[test]

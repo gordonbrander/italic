@@ -125,7 +125,7 @@ pub struct Config {
     #[serde(skip)]
     pub feed: Feed,
     /// Non-secret `publish:` settings (PDS host, target collection, publication
-    /// metadata, bsky toggles). `None` when the site declares no `publish:` block
+    /// metadata). `None` when the site declares no `publish:` block
     /// — the `publish` command errors in that case. Secrets (handle/app password)
     /// are read from the environment, never from here. See [`crate::publish::config`].
     #[serde(skip)]
@@ -681,9 +681,8 @@ fn validate_auto_archives(
     Ok(())
 }
 
-/// Ensure the collection(s) named by `publish:` are declared. The document
-/// collection is required; `bluesky.collection` is optional and only checked when
-/// present. Run after the theme merge, like [`validate_auto_archives`].
+/// Ensure the collection named by `publish:` is declared. Run after the theme
+/// merge, like [`validate_auto_archives`].
 fn validate_publish(
     publish: &crate::publish::config::Publish,
     collections: &[(String, Query)],
@@ -693,14 +692,6 @@ fn validate_publish(
         return Err(anyhow::anyhow!(
             "publish: `{}` does not name a collection (declare it under `collections:`)",
             publish.collection
-        ));
-    }
-    if let Some(name) = &publish.bluesky.collection
-        && !known(name)
-    {
-        return Err(anyhow::anyhow!(
-            "publish.bluesky: `{}` does not name a collection (declare it under `collections:`)",
-            name
         ));
     }
     Ok(())
@@ -1435,15 +1426,6 @@ mod tests {
             err.contains("nope"),
             "error should name the collection: {err}"
         );
-        cleanup(&dir);
-    }
-
-    #[test]
-    fn publish_bluesky_collection_validated() {
-        let dir = tempdir("config");
-        let path = write_config(&dir, "publish:\n  bluesky:\n    collection: ghosts\n");
-        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
-        assert!(err.contains("ghosts"), "{err}");
         cleanup(&dir);
     }
 

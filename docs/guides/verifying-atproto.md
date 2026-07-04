@@ -3,13 +3,13 @@
 After `italic publish`, your posts live in your PDS as
 [`site.standard.document`](https://standard.site/docs/lexicons/document) and
 [`site.standard.publication`](https://standard.site/docs/lexicons/publication)
-records (plus optional `app.bsky.feed.post` summaries). This guide covers how to
+records. This guide covers how to
 confirm they're really there and still match what italic published — first with
 the built-in `italic pubstatus` command, then by hand with `curl` for when you want
 to inspect records directly.
 
 > The other side of this — *creating* the records — is covered in
-> [Publishing to Bluesky & ATProto](publishing-atproto.md). This guide assumes
+> [Publishing to the ATmosphere](publishing-atproto.md). This guide assumes
 > you've already run `italic publish` at least once.
 
 ## `italic pubstatus`
@@ -25,10 +25,9 @@ each one from your PDS, and reports its status:
 
 ```
 authenticated as alice.example.com (did:plc:abc123…)
-  ok      publication self
+  ok      publication
   ok      document posts/getting-started.md
   ok      document posts/second-post.md
-  ok      bsky     posts/getting-started.md
 3 ok, 0 missing, 0 changed
 ```
 
@@ -62,16 +61,7 @@ writes a record or modifies the state file. It needs:
 Unlike `publish`, `pubstatus` does **not** build your site — it only reads config
 and state — so it still works while your content is mid-edit.
 
-### Scoping the check
-
-Mirror the `publish` flags to narrow what's checked:
-
-```sh
-italic pubstatus --documents-only  # site.standard.document/publication only
-italic pubstatus --bsky-only       # app.bsky.feed.post summaries only
-```
-
-See the [CLI reference](../reference/cli.md#italic-pubstatus) for the full flag list.
+See the [CLI reference](../reference/cli.md#italic-pubstatus) for details.
 
 ## Manual verification (under the hood)
 
@@ -111,7 +101,7 @@ curl -s "$PDS/xrpc/com.atproto.repo.describeRepo?repo=$DID" | jq '.collections'
 ```
 
 You're looking for `site.standard.document` and `site.standard.publication` in
-the list (and `app.bsky.feed.post` if you enabled announcements).
+the list.
 
 ### List your published records
 
@@ -133,12 +123,13 @@ back as `&cursor=…` to page through the rest.
 ### Inspect one record
 
 Fetch a record by its **record key** (`rkey`) — the last segment of its AT-URI
-(`at://<did>/<collection>/<rkey>`). italic derives document rkeys from the slug,
-so they're stable and human-readable; the publication record uses the fixed rkey
-`self`:
+(`at://<did>/<collection>/<rkey>`). italic derives document rkeys from a hash of
+the canonical URL (and the publication rkey from the site origin), so they're
+stable but not human-readable — copy the rkey from `.italic/atproto.yaml` or a
+`listRecords` result:
 
 ```sh
-curl -s "$PDS/xrpc/com.atproto.repo.getRecord?repo=$DID&collection=site.standard.document&rkey=getting-started" \
+curl -s "$PDS/xrpc/com.atproto.repo.getRecord?repo=$DID&collection=site.standard.document&rkey=$RKEY" \
   | jq .
 ```
 
@@ -212,6 +203,6 @@ All are unauthenticated `GET`s against your PDS (identity/PLC lookups go to
 
 ## See also
 
-- [Publishing to Bluesky & ATProto](publishing-atproto.md) — creating the records this guide verifies
+- [Publishing to the ATmosphere](publishing-atproto.md) — creating the records this guide verifies
 - [CLI reference](../reference/cli.md#italic-pubstatus) — the `pubstatus` command and its flags
 - [ATProto HTTP reference](https://docs.bsky.app/docs/category/http-reference) · [standard.site lexicons](https://standard.site/docs/lexicons/document)

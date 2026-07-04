@@ -20,29 +20,10 @@
 use crate::config::Config;
 use crate::publish::atproto::{Client, Credentials};
 use crate::publish::config::Publish;
+use crate::publish::document;
 use crate::publish::state::{RecordRef, STATE_PATH, State};
-use crate::publish::{bsky, document};
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::Path;
-
-/// Which record kinds to verify. Mirrors the `publish` toggles so
-/// `--documents-only` / `--bsky-only` scope the check the same way.
-#[derive(Debug, Clone, Copy)]
-pub struct Options {
-    /// Check `site.standard.document` (+ publication) records.
-    pub documents: bool,
-    /// Check `app.bsky.feed.post` summaries.
-    pub bluesky: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            documents: true,
-            bluesky: true,
-        }
-    }
-}
 
 /// The outcome of checking one record against the PDS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +67,7 @@ fn classify(expected_cid: &str, fetched: Option<&str>) -> Status {
 /// Verify the records recorded in state against the PDS. Tokio is confined to
 /// this function (mirroring [`crate::publish::run`]): it builds a current-thread
 /// runtime and drives the async check to completion.
-pub fn run(config: &Config, options: Options) -> Result<()> {
+pub fn run(config: &Config) -> Result<()> {
     let publish = config
         .publish
         .as_ref()
@@ -101,12 +82,12 @@ pub fn run(config: &Config, options: Options) -> Result<()> {
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(check(publish, &state, options))
+    runtime.block_on(check(publish, &state))
 }
 
 /// The authenticated read pass: log in, then fetch and classify every recorded
 /// record. Returns `Err` if anything is MISSING or CHANGED.
-async fn check(publish: &Publish, state: &State, options: Options) -> Result<()> {
+async fn check(publish: &Publish, state: &State) -> Result<()> {
     let creds = Credentials::load(publish)?;
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", creds.handle, client.did());
@@ -128,9 +109,7 @@ async fn check(publish: &Publish, state: &State, options: Options) -> Result<()>
     // Publication record. With a recorded CID we detect drift like any other
     // record; older state files (pre-`publication_cid`) only get an existence
     // check, since there's no expected hash to compare against.
-    if options.documents
-        && let Some(uri) = state.publication_uri.as_deref()
-    {
+    if let Some(uri) = state.publication_uri.as_deref() {
         // The publication rkey is origin-derived; recover it from the recorded URI.
         let rkey = super::rkey_from_uri(uri);
         let fetched = client
@@ -149,24 +128,14 @@ async fn check(publish: &Publish, state: &State, options: Options) -> Result<()>
         tally.add(status);
     }
 
-    // Document + Bluesky records, per doc, in deterministic id_path order
-    // (state.records is a BTreeMap).
+    // Document records, per doc, in deterministic id_path order (state.records
+    // is a BTreeMap).
     for (id_path, records) in &state.records {
-        if options.documents
-            && let Some(rec) = &records.document
-        {
+        if let Some(rec) = &records.document {
             let fetched = client
                 .get_record_cid(document::DOCUMENT_NSID, &rec.rkey)
                 .await?;
             tally.add(report(id_path, "document", rec, fetched.as_deref()));
-        }
-        if options.bluesky
-            && let Some(rec) = &records.bsky
-        {
-            let fetched = client
-                .get_record_cid(bsky::FEED_POST_NSID, &rec.rkey)
-                .await?;
-            tally.add(report(id_path, "bsky", rec, fetched.as_deref()));
         }
     }
 

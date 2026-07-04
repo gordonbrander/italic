@@ -4,11 +4,9 @@
 //! pragmatic near-term path; OAuth+DPoP is a fast-follow. The app password comes
 //! only from the environment — **never** `config.yaml`. The non-secret host and
 //! handle come from the environment too, falling back to the `publish:` config.
-//! The [`Client`] wraps an `atrium-api` agent and exposes the three repo
-//! operations both publish features need: [`Client::upload_blob`],
-//! [`Client::put_record`] (create-or-update at a stable rkey, for
-//! documents/publication), and [`Client::create_record`] (server-assigned rkey,
-//! for create-once bsky posts).
+//! The [`Client`] wraps an `atrium-api` agent and exposes the repo operations
+//! publishing needs: [`Client::upload_blob`] and [`Client::put_record`]
+//! (create-or-update at a stable rkey, for documents/publication).
 
 use crate::publish::config::Publish;
 use anyhow::{Result, anyhow};
@@ -106,8 +104,7 @@ impl Client {
     }
 
     /// Upload raw bytes as a blob and return the reference to embed in a record
-    /// (e.g. `coverImage`, the bsky link-card `thumb`). Blobs are uploaded first,
-    /// then referenced.
+    /// (e.g. `coverImage`). Blobs are uploaded first, then referenced.
     pub async fn upload_blob(&self, bytes: Vec<u8>) -> Result<BlobRef> {
         let out = self
             .agent
@@ -166,45 +163,6 @@ impl Client {
         })
     }
 
-    /// Create a record with a server-assigned `rkey` (a TID). Used for
-    /// `app.bsky.feed.post`, which is conventionally create-once.
-    pub async fn create_record(
-        &self,
-        collection: &str,
-        record: impl Serialize,
-    ) -> Result<WriteResult> {
-        let record = record
-            .try_into_unknown()
-            .map_err(|e| anyhow!("serializing record for {collection}: {e}"))?;
-        let input = atrium_api::com::atproto::repo::create_record::InputData {
-            collection: collection
-                .parse()
-                .map_err(|e| anyhow!("invalid collection NSID `{collection}`: {e}"))?,
-            record,
-            repo: self
-                .did
-                .parse()
-                .map_err(|e| anyhow!("invalid repo DID `{}`: {e}", self.did))?,
-            rkey: None,
-            swap_commit: None,
-            validate: None,
-        }
-        .into();
-        let out = self
-            .agent
-            .api
-            .com
-            .atproto
-            .repo
-            .create_record(input)
-            .await
-            .map_err(|e| anyhow!("createRecord {collection} failed: {e}"))?;
-        Ok(WriteResult {
-            uri: out.data.uri.clone(),
-            cid: out.data.cid.as_ref().to_string(),
-        })
-    }
-
     /// Fetch a record's CID by collection + rkey, read from the authenticated
     /// repo. `Ok(None)` means the record does not exist (`RecordNotFound`);
     /// `Ok(Some(cid))` means it's present. Other XRPC errors propagate.
@@ -257,7 +215,7 @@ fn is_record_not_found(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::publish::config::{Bluesky, Publication, Publish};
+    use crate::publish::config::{Publication, Publish};
 
     fn publish_config() -> Publish {
         Publish {
@@ -266,7 +224,6 @@ mod tests {
             collection: "all".into(),
             verification: true,
             publication: Publication::default(),
-            bluesky: Bluesky::default(),
         }
     }
 

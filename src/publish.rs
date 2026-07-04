@@ -1,16 +1,14 @@
 //! The `publish` layer: sync a built [`DocIndex`](crate::doc_index::DocIndex) to
-//! the user's ATProto PDS as `site.standard.*` and `app.bsky.feed.post` records.
+//! the user's ATProto PDS as `site.standard.*` records.
 //!
 //! Unlike the build pipeline — pure, offline, deterministic — publishing is
 //! networked, stateful, and authenticated. It reuses the frozen index from
 //! [`crate::build::build_index`] (no HTML is rendered), then talks to the PDS
 //! over `com.atproto.*` XRPC. A sidecar state file
 //! ([`state`]) remembers which records map to which docs so re-running *updates*
-//! records instead of duplicating them — load-bearing for correctness, since
-//! Bluesky posts are create-once.
+//! records instead of duplicating them.
 
 pub mod atproto;
-pub mod bsky;
 pub mod config;
 pub mod document;
 pub mod pubstatus;
@@ -20,38 +18,21 @@ use crate::config::Config;
 use crate::doc::Doc;
 use crate::doc_index::DocIndex;
 use crate::publish::atproto::{Client, Credentials};
-use crate::publish::config::{Publish, Thumb};
-use crate::publish::document::StrongRef;
+use crate::publish::config::Publish;
 use crate::publish::state::{RecordRef, State};
 use anyhow::{Context, Result, anyhow};
 use atrium_api::types::BlobRef;
 use std::path::Path;
 use std::time::Duration;
 
-/// Which parts of a publish run to perform. Both features are on by default;
-/// `--documents-only`/`--bsky-only` narrow it. The Bluesky feature additionally
-/// requires `publish.bluesky.enabled` in config.
-#[derive(Debug, Clone, Copy)]
+/// How a publish run behaves.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Options {
     /// Build records and diff against state, but make no network calls.
     pub dry_run: bool,
-    /// Sync `site.standard.document` (+ publication) records.
-    pub documents: bool,
-    /// Create `app.bsky.feed.post` summaries.
-    pub bluesky: bool,
 }
 
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            dry_run: false,
-            documents: true,
-            bluesky: true,
-        }
-    }
-}
-
-/// Delay between record writes, a courtesy throttle against Bluesky's write rate
+/// Delay between record writes, a courtesy throttle against the PDS's write rate
 /// limits on a large first publish.
 const WRITE_THROTTLE: Duration = Duration::from_millis(200);
 
@@ -70,12 +51,10 @@ pub fn run(config: &Config, index: &DocIndex, options: Options) -> Result<()> {
     let mut docs: Vec<&Doc> = index.get_collection(&publish.collection).collect();
     docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
 
-    let bsky_docs = bsky_doc_set(publish, index);
-
     // Document rkeys are derived from each doc's absolute canonical URL, so the
     // origin is required to disambiguate records — without it, two sites sharing
     // one PDS would collide.
-    if options.documents && config.site_url.is_none() {
+    if config.site_url.is_none() {
         return Err(anyhow!(
             "site.url is required to publish documents — it disambiguates record \
              keys so multiple sites can share one PDS"
@@ -86,65 +65,18 @@ pub fn run(config: &Config, index: &DocIndex, options: Options) -> Result<()> {
     let mut state = State::load(state_path)?;
 
     if options.dry_run {
-        return dry_run(config, publish, &options, &docs, &bsky_docs, &state);
+        return dry_run(config, publish, &docs, &state);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(sync(
-        config, publish, &options, &docs, &bsky_docs, &mut state, state_path,
-    ))
-}
-
-/// The id_paths eligible for a Bluesky announcement: the configured bsky
-/// collection (falling back to the document collection), as a set for O(1)
-/// membership checks while iterating the document list.
-fn bsky_doc_set(
-    publish: &Publish,
-    index: &DocIndex,
-) -> std::collections::HashSet<std::path::PathBuf> {
-    let name = publish
-        .bluesky
-        .collection
-        .as_deref()
-        .unwrap_or(&publish.collection);
-    index
-        .get_collection(name)
-        .map(|d| d.id_path.clone())
-        .collect()
-}
-
-/// Whether a doc should get a Bluesky announcement this run, ignoring state (the
-/// create-once check happens at write time). Honors the feature toggles, the
-/// `enabled` flag, the eligible collection, the `announce_after` date guard, and
-/// the per-post `bsky: false` opt-out.
-fn announce_eligible(
-    publish: &Publish,
-    options: &Options,
-    doc: &Doc,
-    bsky_docs: &std::collections::HashSet<std::path::PathBuf>,
-) -> bool {
-    options.bluesky
-        && publish.bluesky.enabled
-        && bsky_docs.contains(&doc.id_path)
-        && !bsky::opted_out(doc)
-        && publish
-            .bluesky
-            .announce_after
-            .is_none_or(|after| doc.date >= after)
+    runtime.block_on(sync(config, publish, &docs, &mut state, state_path))
 }
 
 /// Print what a real run would do, without any network calls.
-fn dry_run(
-    config: &Config,
-    publish: &Publish,
-    options: &Options,
-    docs: &[&Doc],
-    bsky_docs: &std::collections::HashSet<std::path::PathBuf>,
-    state: &State,
-) -> Result<()> {
+fn dry_run(config: &Config, publish: &Publish, docs: &[&Doc], state: &State) -> Result<()> {
     println!("publish --dry-run (no network calls)");
     println!(
         "  publication: {}",
@@ -153,55 +85,31 @@ fn dry_run(
             .as_deref()
             .unwrap_or("(not yet bootstrapped — would be created)")
     );
-    if options.documents {
-        println!("  documents ({}):", publish.collection);
-        for doc in docs {
-            let existing = state.doc(&doc.id_path).and_then(|r| r.document.as_ref());
-            let verb = if existing.is_some() {
-                "update"
-            } else {
-                "create"
-            };
-            let url =
-                document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
-            println!(
-                "    {verb} {} (rkey={})",
-                doc.id_path.display(),
-                document::document_rkey(&url)
-            );
-        }
-    }
-    if options.bluesky {
-        if publish.bluesky.enabled {
-            println!("  bluesky posts:");
-            for doc in docs {
-                if !announce_eligible(publish, options, doc, bsky_docs) {
-                    continue;
-                }
-                let already = state.doc(&doc.id_path).and_then(|r| r.bsky.as_ref());
-                if already.is_some() {
-                    println!("    skip {} (already posted)", doc.id_path.display());
-                } else {
-                    println!("    create {}", doc.id_path.display());
-                }
-            }
+    println!("  documents ({}):", publish.collection);
+    for doc in docs {
+        let existing = state.doc(&doc.id_path).and_then(|r| r.document.as_ref());
+        let verb = if existing.is_some() {
+            "update"
         } else {
-            println!("  bluesky: disabled (publish.bluesky.enabled = false)");
-        }
+            "create"
+        };
+        let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
+        println!(
+            "    {verb} {} (rkey={})",
+            doc.id_path.display(),
+            document::document_rkey(&url)
+        );
     }
     Ok(())
 }
 
-/// The authenticated sync. Bootstraps the publication, then for each doc:
-/// uploads the cover blob (once), creates the bsky post if eligible and not
-/// already posted, and puts the document record with a `bskyPostRef` cross-link.
-/// State is saved after every write so a crash never loses a created post.
+/// The authenticated sync. Bootstraps the publication, then for each doc uploads
+/// the cover blob (once) and puts the document record at its stable rkey. State
+/// is saved after every write so a crash never loses progress.
 async fn sync(
     config: &Config,
     publish: &Publish,
-    options: &Options,
     docs: &[&Doc],
-    bsky_docs: &std::collections::HashSet<std::path::PathBuf>,
     state: &mut State,
     state_path: &Path,
 ) -> Result<()> {
@@ -221,97 +129,39 @@ async fn sync(
     }
     state.did = Some(client.did().to_string());
 
-    // Publication bootstrap (only needed when syncing documents, which reference
-    // it via `site`).
-    let publication_uri = if options.documents {
-        // `run` guarantees `site_url` is set when documents are enabled.
-        let site_url = config
-            .site_url
-            .as_deref()
-            .expect("site.url required when publishing documents");
-        Some(bootstrap_publication(&client, publish, site_url, state, state_path).await?)
-    } else {
-        state.publication_uri.clone()
-    };
+    // Publication bootstrap — documents reference it via `site`.
+    // `run` guarantees `site_url` is set.
+    let site_url = config
+        .site_url
+        .as_deref()
+        .expect("site.url required when publishing documents");
+    let publication_uri =
+        bootstrap_publication(&client, publish, site_url, state, state_path).await?;
 
-    let mut created_posts = 0usize;
     let mut put_docs = 0usize;
-    let mut skipped_posts = 0usize;
 
     for doc in docs {
-        // Upload the cover blob once; reused by the document's coverImage and the
-        // bsky link card thumb.
+        // Upload the cover blob once per doc, for the document's coverImage.
         let cover = upload_cover(&client, doc).await?;
 
-        // Bluesky announcement (create-once).
-        let mut bsky_ref: Option<StrongRef> = state
-            .doc(&doc.id_path)
-            .and_then(|r| r.bsky.as_ref())
-            .map(|r| StrongRef {
-                uri: r.uri.clone(),
-                cid: r.cid.clone(),
-            });
-        if announce_eligible(publish, options, doc, bsky_docs) {
-            if bsky_ref.is_some() {
-                skipped_posts += 1;
-            } else {
-                let thumb = match publish.bluesky.thumb {
-                    Thumb::Cover if publish.bluesky.include_link_card => cover.clone(),
-                    _ => None,
-                };
-                let text = bsky::render_text(doc, publish.bluesky.post_template.as_deref())?;
-                let embed = if publish.bluesky.include_link_card {
-                    let url =
-                        document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
-                    Some(bsky::external_embed(url, doc, thumb))
-                } else {
-                    None
-                };
-                let post = bsky::feed_post(doc, text, embed);
-                let written = client.create_record(bsky::FEED_POST_NSID, &post).await?;
-                state.doc_mut(&doc.id_path).bsky = Some(RecordRef {
-                    rkey: rkey_from_uri(&written.uri),
-                    cid: written.cid.clone(),
-                    uri: written.uri.clone(),
-                });
-                state.save(state_path)?;
-                bsky_ref = Some(StrongRef {
-                    uri: written.uri,
-                    cid: written.cid,
-                });
-                created_posts += 1;
-                throttle().await;
-            }
-        }
-
         // Document record (create-or-update at a stable rkey).
-        if options.documents {
-            let site_uri = publication_uri
-                .as_deref()
-                .expect("publication bootstrapped when documents enabled");
-            let url =
-                document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
-            let rkey = document::document_rkey(&url);
-            let record =
-                document::document(doc, site_uri, &config.base_path, cover, bsky_ref.clone());
-            let written = client
-                .put_record(document::DOCUMENT_NSID, &rkey, &record)
-                .await?;
-            state.doc_mut(&doc.id_path).document = Some(RecordRef {
-                rkey,
-                cid: written.cid,
-                uri: written.uri,
-            });
-            state.save(state_path)?;
-            put_docs += 1;
-            throttle().await;
-        }
+        let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
+        let rkey = document::document_rkey(&url);
+        let record = document::document(doc, &publication_uri, &config.base_path, cover);
+        let written = client
+            .put_record(document::DOCUMENT_NSID, &rkey, &record)
+            .await?;
+        state.doc_mut(&doc.id_path).document = Some(RecordRef {
+            rkey,
+            cid: written.cid,
+            uri: written.uri,
+        });
+        state.save(state_path)?;
+        put_docs += 1;
+        throttle().await;
     }
 
-    println!(
-        "done: {put_docs} document(s), {created_posts} new bsky post(s), \
-         {skipped_posts} already posted"
-    );
+    println!("done: {put_docs} document(s)");
     Ok(())
 }
 
@@ -373,94 +223,12 @@ fn rkey_from_uri(uri: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::publish::config::{Bluesky, Publication};
-    use chrono::{DateTime, NaiveDate, Utc};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
-
-    fn at(date: &str) -> DateTime<Utc> {
-        NaiveDate::parse_from_str(date, "%Y-%m-%d")
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_utc()
-    }
-
-    fn publish_cfg() -> Publish {
-        Publish {
-            pds_host: "https://bsky.social".into(),
-            handle: Some("a".into()),
-            collection: "all".into(),
-            verification: true,
-            publication: Publication::default(),
-            bluesky: Bluesky {
-                enabled: true,
-                ..Bluesky::default()
-            },
-        }
-    }
-
-    fn doc(id: &str, date: &str) -> Doc {
-        Doc {
-            id_path: PathBuf::from(id),
-            date: at(date),
-            ..Doc::default()
-        }
-    }
 
     #[test]
     fn rkey_from_uri_takes_last_segment() {
         assert_eq!(
-            rkey_from_uri("at://did:plc:abc/app.bsky.feed.post/3lwa"),
+            rkey_from_uri("at://did:plc:abc/site.standard.document/3lwa"),
             "3lwa"
         );
-    }
-
-    #[test]
-    fn announce_eligible_respects_toggles_and_guards() {
-        let mut publish = publish_cfg();
-        let options = Options::default();
-        let d = doc("posts/a.md", "2024-05-01");
-        let mut set = HashSet::new();
-        set.insert(d.id_path.clone());
-
-        assert!(announce_eligible(&publish, &options, &d, &set));
-
-        // Not in the eligible collection.
-        assert!(!announce_eligible(&publish, &options, &d, &HashSet::new()));
-
-        // Feature toggled off.
-        let docs_only = Options {
-            bluesky: false,
-            ..options
-        };
-        assert!(!announce_eligible(&publish, &docs_only, &d, &set));
-
-        // Disabled in config.
-        publish.bluesky.enabled = false;
-        assert!(!announce_eligible(&publish, &options, &d, &set));
-        publish.bluesky.enabled = true;
-
-        // announce_after guard drops older docs.
-        publish.bluesky.announce_after = Some(at("2024-06-01"));
-        assert!(!announce_eligible(&publish, &options, &d, &set));
-        let newer = doc("posts/b.md", "2024-07-01");
-        let mut set2 = HashSet::new();
-        set2.insert(newer.id_path.clone());
-        assert!(announce_eligible(&publish, &options, &newer, &set2));
-    }
-
-    #[test]
-    fn announce_eligible_honors_opt_out() {
-        let publish = publish_cfg();
-        let options = Options::default();
-        let mut d = doc("posts/a.md", "2024-05-01");
-        d.data.insert(
-            serde_yaml_ng::Value::String("bsky".into()),
-            serde_yaml_ng::Value::Bool(false),
-        );
-        let mut set = HashSet::new();
-        set.insert(d.id_path.clone());
-        assert!(!announce_eligible(&publish, &options, &d, &set));
     }
 }
