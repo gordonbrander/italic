@@ -20,36 +20,37 @@ italic atproto status
 ```
 
 It builds your site index (the same way `atproto publish` does — drafts
-excluded, no HTML written) to derive which records *should* exist, then lists
-what your PDS actually holds via `com.atproto.repo.listRecords` and compares.
-The PDS is the source of truth — there is no local state file:
+excluded, no HTML written) to derive what each record *should contain*, then
+lists what your PDS actually holds via `com.atproto.repo.listRecords` and
+compares. The PDS is the source of truth — there is no local state file:
 
 ```
 authenticated as alice.example.com (did:plc:abc123…)
   ok       publication at://did:plc:abc123…/site.standard.publication/cadib…
   ok       posts/getting-started.md
+  CHANGED  posts/edited-post.md (rkey=a7bfe…) — local content differs from the PDS
   MISSING  posts/second-post.md (rkey=c5oqy…)
   ORPHANED at://did:plc:abc123…/site.standard.document/xyz… (no matching local doc — deleted or renamed?)
-1 published, 1 missing, 1 orphaned
+1 published, 1 changed, 1 missing, 1 orphaned
 ```
 
 Each expected record — the publication plus one document per doc in your
 configured collection — is classified:
 
-- **ok** — present on the PDS at its expected record key.
+- **ok** — present on the PDS and identical to what your current local content
+  produces.
+- **CHANGED** — present, but its value differs from the locally built record:
+  you edited content since the last publish, or the record was rewritten by
+  another client. Run `italic atproto publish` to reconcile either way.
 - **MISSING** — absent from the PDS. Run `italic atproto publish` to (re)create it.
 - **ORPHANED** — a document record on the PDS that references your publication
   but has no matching local doc: you deleted or renamed the source since
   publishing it. See [removing orphans](#removing-orphans) below.
 
-Checks are **existence-only**: record keys are deterministic hashes of your
-canonical URLs, so presence at the expected key is the signal. A record edited
-in place by another client still reads **ok** — inspect its fields manually
-(below) if you suspect that.
-
-If anything is MISSING, `italic atproto status` **exits nonzero**, so you can
-gate a CI step or a deploy script on it. Orphans only warn — they're the normal
-aftermath of deletes and renames, and cleaning them up is a manual step.
+If anything is MISSING or CHANGED, `italic atproto status` **exits nonzero**,
+so you can gate a CI step or a deploy script on it. Orphans only warn — they're
+the normal aftermath of deletes and renames, and cleaning them up is a manual
+step.
 
 ### What it needs
 
@@ -61,7 +62,9 @@ never writes a record. It needs:
   same requirement `publish` has).
 - Credentials in the environment — the same
   `ITALIC_ATPROTO_DID` / `ITALIC_ATPROTO_APP_PASSWORD` you use to publish.
-- Buildable content, since it derives the expected records from a site build.
+- Buildable, publishable content, since it builds the expected records exactly
+  as `publish` would — including `atproto.publication` `name`/`url` and
+  readable cover images.
 
 See the [CLI reference](../reference/cli.md#italic-atproto-status) for details.
 

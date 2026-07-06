@@ -12,7 +12,7 @@
 use crate::doc::Doc;
 use crate::html;
 use crate::permalink;
-use atrium_api::types::BlobRef;
+use atrium_api::types::{Blob, BlobRef, CidLink, TypedBlobRef};
 use chrono::SecondsFormat;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -100,6 +100,32 @@ pub struct Publication {
 fn rkey_hash(input: &str) -> String {
     let digest = Sha256::digest(input.as_bytes());
     data_encoding::BASE32_NOPAD.encode(&digest).to_lowercase()
+}
+
+/// CIDv1 string (raw codec, sha-256) for blob bytes, exactly as the PDS mints
+/// for `uploadBlob`: multibase `b` + base32-lower of the CID bytes
+/// `[0x01 (v1), 0x55 (raw), 0x12 (sha2-256), 0x20 (32 bytes)] ++ sha256(bytes)`.
+/// Lets publish/status derive a blob's address offline, without uploading.
+pub fn blob_cid(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut cid = vec![0x01, 0x55, 0x12, 0x20];
+    cid.extend_from_slice(&digest);
+    format!("b{}", data_encoding::BASE32_NOPAD.encode(&cid).to_lowercase())
+}
+
+/// A [`BlobRef`] derived locally from file bytes — same `ref.$link` and `size`
+/// the PDS would return from `uploadBlob`. The mimeType is a placeholder
+/// (`*/*`, what atrium sends as Content-Type); record comparison ignores it
+/// (see [`crate::atproto::compare`]).
+pub fn derived_blob_ref(bytes: &[u8]) -> Result<BlobRef, anyhow::Error> {
+    let cid = blob_cid(bytes);
+    let link = CidLink::try_from(cid.as_str())
+        .map_err(|e| anyhow::anyhow!("constructing CID link {cid}: {e}"))?;
+    Ok(BlobRef::Typed(TypedBlobRef::Blob(Blob {
+        r#ref: link,
+        mime_type: "*/*".into(),
+        size: bytes.len(),
+    })))
 }
 
 /// Record key for a doc's `site.standard.document`, derived from its absolute
@@ -239,6 +265,28 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+
+    #[test]
+    fn blob_cid_matches_known_vector() {
+        // The well-known CIDv1 raw sha-256 CID for "hello world" — cross-checks
+        // the hand-rolled encoding against the IPFS/ATProto ecosystem.
+        assert_eq!(
+            blob_cid(b"hello world"),
+            "bafkreifzjut3te2nhyekklss27nh3k72ysco7y32koao5eei66wof36n5e"
+        );
+    }
+
+    #[test]
+    fn derived_blob_ref_serializes_to_blob_shape() {
+        let blob = derived_blob_ref(b"hello world").unwrap();
+        let v = serde_json::to_value(&blob).unwrap();
+        assert_eq!(v["$type"], "blob");
+        assert_eq!(
+            v["ref"]["$link"],
+            "bafkreifzjut3te2nhyekklss27nh3k72ysco7y32koao5eei66wof36n5e"
+        );
+        assert_eq!(v["size"], 11);
+    }
 
     fn at(date: &str) -> DateTime<Utc> {
         NaiveDate::parse_from_str(date, "%Y-%m-%d")

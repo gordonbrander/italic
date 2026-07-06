@@ -7,9 +7,12 @@
 //! over `com.atproto.*` XRPC. There is no local state: record keys are
 //! deterministic hashes of the canonical URL / site origin, so re-running
 //! *updates* records in place via `putRecord`, and the PDS itself is the source
-//! of truth for what is published (see [`status`]).
+//! of truth for what is published (see [`status`]). Before writing, each record
+//! is compared against the value the PDS already holds ([`compare`]); unchanged
+//! records are skipped entirely — no blob upload, no repo commit.
 
 pub mod client;
+pub mod compare;
 pub mod config;
 pub mod cover;
 pub mod document;
@@ -23,7 +26,7 @@ use crate::doc::Doc;
 use crate::doc_index::DocIndex;
 use crate::site_data::SiteData;
 use anyhow::{Context, Result, anyhow};
-use atrium_api::types::BlobRef;
+use atrium_api::types::{BlobRef, Unknown};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -53,15 +56,7 @@ pub fn publish(
         .as_ref()
         .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to publish"))?;
 
-    // Cover fallback inputs: the site-wide default image and the static roots
-    // in lookup order (site first, then theme — the reverse of the copy order,
-    // where the site overlays the theme).
-    let site_image = site_data
-        .site
-        .get("image")
-        .and_then(serde_yaml_ng::Value::as_str);
-    let mut static_roots = config.static_roots();
-    static_roots.reverse();
+    let (site_image, static_roots) = cover_inputs(config, site_data);
 
     // Collect the docs to publish, sorted by id_path for deterministic, diffable
     // syncs (the collection iterator is HashMap-backed, so order is otherwise
@@ -137,10 +132,12 @@ fn dry_run(
     Ok(())
 }
 
-/// The authenticated sync. Bootstraps the publication, then for each doc uploads
-/// the cover blob (the page's `image:`, else `site.image`, resolved through the
-/// static roots and cached per file so a shared default uploads once) and puts
-/// the document record at its stable rkey. Every write is idempotent — rkeys are
+/// The authenticated sync. Bootstraps the publication, then for each doc builds
+/// the expected record (cover blob ref derived locally — the page's `image:`,
+/// else `site.image`, resolved through the static roots) and compares it against
+/// the value already on the PDS; identical records are skipped, changed ones get
+/// their cover uploaded (cached per file so a shared default uploads once) and
+/// are put at their stable rkey. Every write is idempotent — rkeys are
 /// deterministic — so an interrupted run is simply re-run.
 async fn sync(
     config: &Config,
@@ -161,17 +158,34 @@ async fn sync(
         .expect("site.url required when publishing documents");
     let publication_uri = bootstrap_publication(&client, atproto, site_url).await?;
 
+    // What the PDS currently holds, keyed by rkey, for the skip-unchanged check.
+    let remote: HashMap<String, Unknown> = client
+        .list_records(document::DOCUMENT_NSID)
+        .await?
+        .into_iter()
+        .map(|r| (rkey_from_uri(&r.uri), r.data.value))
+        .collect();
+
     let mut put_docs = 0usize;
-    let mut covers = CoverUploader::new(site_image, static_roots);
+    let mut unchanged = 0usize;
+    let mut covers = Covers::new(site_image, static_roots);
 
     for doc in docs {
-        // Resolve and upload the doc's coverImage blob (cached by file path).
-        let cover = covers.upload(&client, doc).await?;
-
-        // Document record (create-or-update at a stable rkey).
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
         let rkey = document::document_rkey(&url);
-        let record = document::document(doc, &publication_uri, &config.base_path, cover);
+
+        // Expected record with a locally-derived cover ref; if the PDS already
+        // holds an identical record, skip the upload and the put entirely.
+        let mut record =
+            document::document(doc, &publication_uri, &config.base_path, covers.derive(doc)?);
+        if remote.get(&rkey).is_some_and(|r| compare::equal(&record, r)) {
+            unchanged += 1;
+            continue;
+        }
+
+        // Changed (or new): upload the cover for real and put with the uploaded
+        // ref, which is authoritative.
+        record.cover_image = covers.upload(&client, doc).await?;
         client
             .put_record(document::DOCUMENT_NSID, &rkey, &record)
             .await?;
@@ -179,20 +193,42 @@ async fn sync(
         throttle().await;
     }
 
-    println!("done: {put_docs} document(s)");
+    println!("done: {put_docs} put, {unchanged} unchanged");
     Ok(())
 }
 
 /// Create or update the single `site.standard.publication` record and return its
 /// AT-URI. The rkey is derived from the site origin so each site gets its own
-/// publication record on a shared PDS.
-async fn bootstrap_publication(client: &Client, atproto: &Atproto, site_url: &str) -> Result<String> {
+/// publication record on a shared PDS. Skips the write when the PDS already
+/// holds an identical record (icon compared by derived blob ref).
+async fn bootstrap_publication(
+    client: &Client,
+    atproto: &Atproto,
+    site_url: &str,
+) -> Result<String> {
+    let rkey = document::publication_rkey(site_url);
+    let uri = document::publication_uri(client.did(), site_url);
+
+    let derived_icon = match &atproto.publication.icon {
+        Some(path) => Some(derive_image(path)?),
+        None => None,
+    };
+    let expected = document::publication(&atproto.publication, derived_icon)?;
+    let existing = client
+        .list_records(document::PUBLICATION_NSID)
+        .await?
+        .into_iter()
+        .find(|r| rkey_from_uri(&r.uri) == rkey);
+    if existing.is_some_and(|r| compare::equal(&expected, &r.data.value)) {
+        println!("publication: unchanged {uri}");
+        return Ok(uri);
+    }
+
     let icon = match &atproto.publication.icon {
         Some(path) => Some(upload_image(client, path).await?),
         None => None,
     };
     let record = document::publication(&atproto.publication, icon)?;
-    let rkey = document::publication_rkey(site_url);
     let written = client
         .put_record(document::PUBLICATION_NSID, &rkey, &record)
         .await
@@ -201,33 +237,49 @@ async fn bootstrap_publication(client: &Client, atproto: &Atproto, site_url: &st
     Ok(written.uri)
 }
 
-/// Uploads each doc's resolved cover ([`cover::resolve`]), caching blobs by
-/// resolved path so a shared image (typically the site-wide default) uploads at
-/// most once per run, and warning once per distinct skipped value.
-struct CoverUploader<'a> {
+/// Cover fallback inputs shared by publish and status: the site-wide default
+/// image and the static roots in lookup order (site first, then theme — the
+/// reverse of the copy order, where the site overlays the theme).
+fn cover_inputs<'a>(config: &Config, site_data: &'a SiteData) -> (Option<&'a str>, Vec<PathBuf>) {
+    let site_image = site_data
+        .site
+        .get("image")
+        .and_then(serde_yaml_ng::Value::as_str);
+    let mut static_roots = config.static_roots();
+    static_roots.reverse();
+    (site_image, static_roots)
+}
+
+/// Resolves each doc's cover ([`cover::resolve`]) and produces its blob ref two
+/// ways: [`Covers::derive`] hashes the file locally (offline — for building the
+/// expected record to compare or verify), and [`Covers::upload`] does the real
+/// `uploadBlob` when a put is needed. Both are cached by resolved path so a
+/// shared image (typically the site-wide default) is read/uploaded at most once
+/// per run; skips warn once per distinct value.
+struct Covers<'a> {
     site_image: Option<&'a str>,
     static_roots: &'a [PathBuf],
-    cache: HashMap<PathBuf, BlobRef>,
+    derived: HashMap<PathBuf, BlobRef>,
+    uploaded: HashMap<PathBuf, BlobRef>,
     warned: HashSet<String>,
 }
 
-impl<'a> CoverUploader<'a> {
+impl<'a> Covers<'a> {
     fn new(site_image: Option<&'a str>, static_roots: &'a [PathBuf]) -> Self {
         Self {
             site_image,
             static_roots,
-            cache: HashMap::new(),
+            derived: HashMap::new(),
+            uploaded: HashMap::new(),
             warned: HashSet::new(),
         }
     }
 
-    /// Resolve `doc`'s cover and upload it (or return the cached blob). An
-    /// unreadable file is a hard error — the path existed at resolve time, so a
-    /// read failure is genuinely exceptional. External URLs and missing files
-    /// warn (once per distinct value) and skip.
-    async fn upload(&mut self, client: &Client, doc: &Doc) -> Result<Option<BlobRef>> {
-        let path = match cover::resolve(doc, self.site_image, self.static_roots) {
-            Cover::Resolved(p, _) => p,
+    /// Resolve `doc`'s cover to a local file. External URLs and missing files
+    /// warn (once per distinct value) and resolve to `None`.
+    fn resolve(&mut self, doc: &Doc) -> Option<PathBuf> {
+        match cover::resolve(doc, self.site_image, self.static_roots) {
+            Cover::Resolved(p, _) => Some(p),
             Cover::External(url) => {
                 self.warn_once(
                     &url,
@@ -236,7 +288,7 @@ impl<'a> CoverUploader<'a> {
                         doc.id_path.display()
                     ),
                 );
-                return Ok(None);
+                None
             }
             Cover::Missing(raw, source) => {
                 self.warn_once(
@@ -245,15 +297,48 @@ impl<'a> CoverUploader<'a> {
                         "warning: {source} image {raw} not found under any static root — skipping coverImage"
                     ),
                 );
-                return Ok(None);
+                None
             }
-            Cover::None => return Ok(None),
+            Cover::None => None,
+        }
+    }
+
+    /// The locally-derived blob ref for `doc`'s cover (no network — read + hash,
+    /// cached by resolved path). An unreadable file is a hard error — the path
+    /// existed at resolve time, so a read failure is genuinely exceptional.
+    fn derive(&mut self, doc: &Doc) -> Result<Option<BlobRef>> {
+        let Some(path) = self.resolve(doc) else {
+            return Ok(None);
         };
-        if let Some(blob) = self.cache.get(&path) {
+        if let Some(blob) = self.derived.get(&path) {
+            return Ok(Some(blob.clone()));
+        }
+        let blob = derive_image(&path)?;
+        self.derived.insert(path, blob.clone());
+        Ok(Some(blob))
+    }
+
+    /// Upload `doc`'s resolved cover (or return the cached blob). Warns if the
+    /// PDS mints a different CID than [`Covers::derive`] computed — that would
+    /// make the skip-unchanged comparison never match, so it should be loud.
+    async fn upload(&mut self, client: &Client, doc: &Doc) -> Result<Option<BlobRef>> {
+        let Some(path) = self.resolve(doc) else {
+            return Ok(None);
+        };
+        if let Some(blob) = self.uploaded.get(&path) {
             return Ok(Some(blob.clone()));
         }
         let blob = upload_image(client, &path).await?;
-        self.cache.insert(path, blob.clone());
+        if let Some(derived) = self.derived.get(&path)
+            && !compare::equal(derived, &blob)
+        {
+            eprintln!(
+                "warning: PDS blob CID for {} differs from the locally derived one — \
+                 unchanged-record detection will not work for this image",
+                path.display()
+            );
+        }
+        self.uploaded.insert(path, blob.clone());
         Ok(Some(blob))
     }
 
@@ -264,6 +349,14 @@ impl<'a> CoverUploader<'a> {
             eprintln!("{message}");
         }
     }
+}
+
+/// Read an image from disk and derive its blob ref offline (no upload) — for
+/// building expected records ([`document::derived_blob_ref`]).
+fn derive_image(path: &Path) -> Result<BlobRef> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("reading image {} to derive its blob ref", path.display()))?;
+    document::derived_blob_ref(&bytes)
 }
 
 /// Read an image from disk and upload it as a blob.

@@ -111,6 +111,12 @@ re-run. To see what's actually published, ask the PDS —
 `italic atproto status` does exactly that (see
 [Verifying your records](verifying-atproto.md)).
 
+Re-publishing is also cheap: each run reads back what the PDS holds and
+compares it to the freshly built records, skipping any that are unchanged — no
+blob upload, no repo commit, nothing on the firehose. The summary reports the
+split (`done: 2 put, 40 unchanged`), so publishing after editing one post
+writes exactly one record.
+
 > Earlier versions of italic recorded publishes in `.italic/atproto.yaml`. That
 > file is no longer read or written — you can delete it.
 

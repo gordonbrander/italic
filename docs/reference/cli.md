@@ -50,10 +50,13 @@ italic watch
 ## `italic atproto publish`
 
 Build the site and sync it to your ATProto PDS as standard.site documents.
-Unlike the other commands this one is networked, stateful, and authenticated,
-and it writes **no HTML** — it reuses the build only to obtain your rendered
-documents. Requires an [`atproto:`](config.md#atproto) block and credentials
-(see the [Publishing guide](../guides/publishing-atproto.md)).
+Unlike the other commands this one is networked and authenticated, and it
+writes **no HTML** — it reuses the build only to obtain your rendered
+documents. Records that are identical to what the PDS already holds are
+skipped (no blob upload, no repo commit); the summary reports the split
+(`done: 2 put, 40 unchanged`). Requires an [`atproto:`](config.md#atproto)
+block and credentials (see the
+[Publishing guide](../guides/publishing-atproto.md)).
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -78,11 +81,13 @@ never writes a record. Like `atproto publish` it builds the site index (drafts
 excluded, no HTML written) to derive the expected records, so it requires an
 [`atproto:`](config.md#atproto) block, `site.url`, and credentials.
 
-For each expected record it reports `ok` (present at its derived record key) or
-`MISSING` (absent — re-publish to fix), plus `ORPHANED` for records on the PDS
-that reference your publication but have no matching local doc (deleted or
-renamed sources). Checks are existence-only. If anything is MISSING the command
-**exits nonzero**, so it can gate a CI step; orphans only warn.
+For each expected record it reports `ok` (present and identical to the locally
+built record), `CHANGED` (present but differing — unpublished local edits, or
+rewritten by another client; re-publish to reconcile), or `MISSING` (absent —
+re-publish to fix), plus `ORPHANED` for records on the PDS that reference your
+publication but have no matching local doc (deleted or renamed sources). If
+anything is MISSING or CHANGED the command **exits nonzero**, so it can gate a
+CI step; orphans only warn.
 
 ```sh
 italic atproto status   # check every published record
