@@ -10,6 +10,7 @@
 
 pub mod atproto;
 pub mod config;
+pub mod cover;
 pub mod document;
 pub mod pubstatus;
 pub mod state;
@@ -19,10 +20,13 @@ use crate::doc::Doc;
 use crate::doc_index::DocIndex;
 use crate::publish::atproto::{Client, Credentials};
 use crate::publish::config::Publish;
+use crate::publish::cover::Cover;
 use crate::publish::state::{RecordRef, State};
+use crate::site_data::SiteData;
 use anyhow::{Context, Result, anyhow};
 use atrium_api::types::BlobRef;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// How a publish run behaves.
@@ -39,11 +43,21 @@ const WRITE_THROTTLE: Duration = Duration::from_millis(200);
 /// Publish a built [`DocIndex`] to the PDS. Tokio is confined to this function
 /// (the build pipeline that produced `index` is sync/rayon); it builds a
 /// current-thread runtime and drives the async sync to completion.
-pub fn run(config: &Config, index: &DocIndex, options: Options) -> Result<()> {
+pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex, options: Options) -> Result<()> {
     let publish = config
         .publish
         .as_ref()
         .ok_or_else(|| anyhow!("no `publish:` block in config.yaml — nothing to publish"))?;
+
+    // Cover fallback inputs: the site-wide default image and the static roots
+    // in lookup order (site first, then theme — the reverse of the copy order,
+    // where the site overlays the theme).
+    let site_image = site_data
+        .site
+        .get("image")
+        .and_then(serde_yaml_ng::Value::as_str);
+    let mut static_roots = config.static_roots();
+    static_roots.reverse();
 
     // Collect the docs to publish, sorted by id_path for deterministic, diffable
     // syncs (the collection iterator is HashMap-backed, so order is otherwise
@@ -65,18 +79,34 @@ pub fn run(config: &Config, index: &DocIndex, options: Options) -> Result<()> {
     let mut state = State::load(state_path)?;
 
     if options.dry_run {
-        return dry_run(config, publish, &docs, &state);
+        return dry_run(config, publish, &docs, &state, site_image, &static_roots);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(sync(config, publish, &docs, &mut state, state_path))
+    runtime.block_on(sync(
+        config,
+        publish,
+        &docs,
+        &mut state,
+        state_path,
+        site_image,
+        &static_roots,
+    ))
 }
 
-/// Print what a real run would do, without any network calls.
-fn dry_run(config: &Config, publish: &Publish, docs: &[&Doc], state: &State) -> Result<()> {
+/// Print what a real run would do, without any network calls (cover resolution
+/// is read-only filesystem checks).
+fn dry_run(
+    config: &Config,
+    publish: &Publish,
+    docs: &[&Doc],
+    state: &State,
+    site_image: Option<&str>,
+    static_roots: &[PathBuf],
+) -> Result<()> {
     println!("publish --dry-run (no network calls)");
     println!(
         "  publication: {}",
@@ -94,8 +124,17 @@ fn dry_run(config: &Config, publish: &Publish, docs: &[&Doc], state: &State) -> 
             "create"
         };
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
+        warn_legacy_cover(doc);
+        let cover = match cover::resolve(doc, site_image, static_roots) {
+            Cover::Resolved(p, source) => format!(", cover: {} (from {source})", p.display()),
+            Cover::External(u) => format!(", cover: skipped — external URL {u}"),
+            Cover::Missing(raw, source) => {
+                format!(", cover: skipped — {source} {raw} not found in static roots")
+            }
+            Cover::None => String::new(),
+        };
         println!(
-            "    {verb} {} (rkey={})",
+            "    {verb} {} (rkey={}){cover}",
             doc.id_path.display(),
             document::document_rkey(&url)
         );
@@ -104,14 +143,18 @@ fn dry_run(config: &Config, publish: &Publish, docs: &[&Doc], state: &State) -> 
 }
 
 /// The authenticated sync. Bootstraps the publication, then for each doc uploads
-/// the cover blob (once) and puts the document record at its stable rkey. State
-/// is saved after every write so a crash never loses progress.
+/// the cover blob (the page's `image:`, else `site.image`, resolved through the
+/// static roots and cached per file so a shared default uploads once) and puts
+/// the document record at its stable rkey. State is saved after every write so
+/// a crash never loses progress.
 async fn sync(
     config: &Config,
     publish: &Publish,
     docs: &[&Doc],
     state: &mut State,
     state_path: &Path,
+    site_image: Option<&str>,
+    static_roots: &[PathBuf],
 ) -> Result<()> {
     let creds = Credentials::load(publish)?;
     let client = Client::login(&creds).await?;
@@ -139,10 +182,11 @@ async fn sync(
         bootstrap_publication(&client, publish, site_url, state, state_path).await?;
 
     let mut put_docs = 0usize;
+    let mut covers = CoverUploader::new(site_image, static_roots);
 
     for doc in docs {
-        // Upload the cover blob once per doc, for the document's coverImage.
-        let cover = upload_cover(&client, doc).await?;
+        // Resolve and upload the doc's coverImage blob (cached by file path).
+        let cover = covers.upload(&client, doc).await?;
 
         // Document record (create-or-update at a stable rkey).
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
@@ -192,13 +236,83 @@ async fn bootstrap_publication(
     Ok(written.uri)
 }
 
-/// Upload a doc's `cover:` frontmatter image as a blob, if it has one. The path
-/// is resolved relative to the working directory.
-async fn upload_cover(client: &Client, doc: &Doc) -> Result<Option<BlobRef>> {
-    let Some(path) = doc.data.get("cover").and_then(serde_yaml_ng::Value::as_str) else {
-        return Ok(None);
-    };
-    Ok(Some(upload_image(client, Path::new(path)).await?))
+/// Uploads each doc's resolved cover ([`cover::resolve`]), caching blobs by
+/// resolved path so a shared image (typically the site-wide default) uploads at
+/// most once per run, and warning once per distinct skipped value.
+struct CoverUploader<'a> {
+    site_image: Option<&'a str>,
+    static_roots: &'a [PathBuf],
+    cache: HashMap<PathBuf, BlobRef>,
+    warned: HashSet<String>,
+}
+
+impl<'a> CoverUploader<'a> {
+    fn new(site_image: Option<&'a str>, static_roots: &'a [PathBuf]) -> Self {
+        Self {
+            site_image,
+            static_roots,
+            cache: HashMap::new(),
+            warned: HashSet::new(),
+        }
+    }
+
+    /// Resolve `doc`'s cover and upload it (or return the cached blob). An
+    /// unreadable file is a hard error — the path existed at resolve time, so a
+    /// read failure is genuinely exceptional. External URLs and missing files
+    /// warn (once per distinct value) and skip.
+    async fn upload(&mut self, client: &Client, doc: &Doc) -> Result<Option<BlobRef>> {
+        warn_legacy_cover(doc);
+        let path = match cover::resolve(doc, self.site_image, self.static_roots) {
+            Cover::Resolved(p, _) => p,
+            Cover::External(url) => {
+                self.warn_once(
+                    &url,
+                    format!(
+                        "warning: cannot upload external image URL as coverImage for {}: {url} — skipping",
+                        doc.id_path.display()
+                    ),
+                );
+                return Ok(None);
+            }
+            Cover::Missing(raw, source) => {
+                self.warn_once(
+                    &raw,
+                    format!(
+                        "warning: {source} image {raw} not found under any static root — skipping coverImage"
+                    ),
+                );
+                return Ok(None);
+            }
+            Cover::None => return Ok(None),
+        };
+        if let Some(blob) = self.cache.get(&path) {
+            return Ok(Some(blob.clone()));
+        }
+        let blob = upload_image(client, &path).await?;
+        self.cache.insert(path, blob.clone());
+        Ok(Some(blob))
+    }
+
+    /// Print `message` unless `key` (the offending raw value) has already been
+    /// warned about this run.
+    fn warn_once(&mut self, key: &str, message: String) {
+        if self.warned.insert(key.to_string()) {
+            eprintln!("{message}");
+        }
+    }
+}
+
+/// Warn when a doc still carries the removed `cover:` frontmatter key.
+/// Frontmatter is schemaless, so this warning is the only signal that the key
+/// no longer does anything.
+fn warn_legacy_cover(doc: &Doc) {
+    if let Some(value) = cover::legacy_cover(doc) {
+        eprintln!(
+            "warning: {}: `cover:` is no longer used ({value}) — set `image:` instead \
+             (a site-root-relative URL path, shared with og:image)",
+            doc.id_path.display()
+        );
+    }
 }
 
 /// Read an image from disk and upload it as a blob.

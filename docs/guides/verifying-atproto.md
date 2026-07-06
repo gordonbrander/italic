@@ -152,6 +152,11 @@ curl -s https://example.com/posts/getting-started/ \
   | grep -o '<link rel="site.standard.document"[^>]*>'
 ```
 
+The per-page tag is emitted by the built-in `standard_link` metadata filter
+(included in the `{{ page | metadata(site=site) }}` umbrella — see the
+[Metadata guide](metadata.md)), so it appears automatically once the publish
+state file holds document records.
+
 When the well-known file, the per-page `<link>`, and the PDS records all agree,
 the round-trip is verified: your domain claims the records, and the records exist.
 

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 /// Run a publish. Drafts are never published (we build with `include_drafts =
 /// false`), so they stay out of the PDS just as they stay out of `italic build`.
 pub fn run(options: Options) -> Result<()> {
-    let (config, _site_data, index) =
+    let (config, site_data, index) =
         crate::build::build_index(false).context("building site before publish")?;
-    publish::run(&config, &index, options)
+    publish::run(&config, &site_data, &index, options)
 }

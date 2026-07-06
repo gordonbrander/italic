@@ -2,21 +2,15 @@
 //! published page with a `<link rel="site.standard.document" href="at://…">` tag
 //! in its `<head>`. The AT-URI is dynamic (assigned by the PDS, recorded in the
 //! publish state file), so this pass injects it into each published doc's `data`
-//! as `atproto_uri`, letting a theme emit:
+//! as `atproto_uri`. The tag itself is emitted by the built-in `standard_link`
+//! metadata filter (and by the `metadata` umbrella — see
+//! `crate::tera_env::meta`), so themes using `{{ page | metadata(site=site) }}`
+//! get verification for free; hand-rolled heads can still read
+//! `page.data.atproto_uri` directly.
 //!
-//! ```html
-//! {% if page.data.atproto_uri %}
-//! <link rel="site.standard.document" href="{{ page.data.atproto_uri | safe }}">
-//! {% endif %}
-//! ```
-//!
-//! (`| safe` keeps the `at://` slashes unescaped; without it Tera HTML-escapes
-//! them — still a valid `href`, just noisier.)
-//!
-//! italic ships no default theme, so the tag itself is the theme author's to add;
-//! this pass just provides the binding. It runs inside [`crate::build::build_index`]
-//! before the index freezes, is gated on `publish.verification`, and is a no-op
-//! until `italic publish` has written document records to the state file.
+//! This pass runs inside [`crate::build::build_index`] before the index freezes,
+//! is gated on `publish.verification`, and is a no-op until `italic publish` has
+//! written document records to the state file.
 
 use crate::config::Config;
 use crate::doc_index::DocIndex;

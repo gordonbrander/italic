@@ -120,12 +120,25 @@ fields — no new content modeling:
 | `path` | the document's URL path (`base_path` + permalink) |
 | `tags` | the `tags` taxonomy |
 | `textContent` | plaintext of the rendered body |
-| `coverImage` | the `cover:` frontmatter image (uploaded as a blob) |
+| `coverImage` | the page's `image:` social image, else `site.image` (uploaded as a blob) |
 | `site` | your publication record's AT-URI |
 
 The **publication** record comes from `publish.publication` — `name` and `url`
 are required to publish it (the build fails loudly if either is missing). An
 optional `icon:` path is uploaded as a blob.
+
+### Cover images
+
+`coverImage` shares its source with the [social-card metadata](metadata.md):
+the same `image:` frontmatter (then `site.image`) that feeds `og:image` and
+`twitter:image`, so the ATProto cover always matches the page's social card.
+These are site-root-relative **URL paths** (e.g. `/img/cover.png`), resolved to
+files through your `static/` sources (the site's `static/` first, then the
+theme's). External URLs and paths that match no static file are skipped with a
+warning instead of failing.
+
+A shared image (typically the `site.image` default) is uploaded once per run,
+not once per document. `--dry-run` shows each document's resolved cover source.
 
 ## Verification artifacts
 
@@ -139,14 +152,10 @@ publishing assigns:
    Generated automatically; nothing to template.
 
 2. **Per-document proof** — a `<link rel="site.standard.document">` tag in each
-   published page's `<head>`. italic ships no default theme, so you add the tag
-   yourself; italic provides the AT-URI as `page.data.atproto_uri`:
-
-   ```html
-   {% if page.data.atproto_uri %}
-   <link rel="site.standard.document" href="{{ page.data.atproto_uri | safe }}">
-   {% endif %}
-   ```
+   published page's `<head>`. The built-in [metadata filters](metadata.md) emit
+   it automatically: `{{ page | metadata(site=site) }}` includes it, or compose
+   `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
+   raw AT-URI from `page.data.atproto_uri`.
 
 So the recommended flow is: `italic publish` once (to mint the records and write
 state), then `italic build` (to emit the proofs), then deploy your HTML.
