@@ -1,23 +1,29 @@
 //! Per-document standard.site ownership proof. standard.site verifies each
 //! published page with a `<link rel="site.standard.document" href="at://…">` tag
-//! in its `<head>`. The AT-URI is dynamic (assigned by the PDS, recorded in the
-//! publish state file), so this pass injects it into each published doc's `data`
-//! as `atproto_uri`. The tag itself is emitted by the built-in `standard_link`
-//! metadata filter (and by the `metadata` umbrella — see
-//! `crate::tera_env::meta`), so themes using `{{ page | metadata(site=site) }}`
-//! get verification for free; hand-rolled heads can still read
-//! `page.data.atproto_uri` directly.
+//! in its `<head>`. The AT-URI is fully derivable from config — `at://` +
+//! `publish.did` + the collection NSID + an rkey hashed from the doc's canonical
+//! URL (see [`crate::publish::document::document_uri`]) — so this pass computes
+//! it directly; no publish state, no network, and the proofs are present in
+//! every build (including CI, where the state file typically doesn't exist).
 //!
-//! This pass runs inside [`crate::build::build_index`] before the index freezes,
-//! is gated on `publish.verification`, and is a no-op until `italic publish` has
-//! written document records to the state file.
+//! The pass injects the URI into each published doc's `data` as `atproto_uri`;
+//! the tag itself is emitted by the built-in `standard_link` metadata filter
+//! (and by the `metadata` umbrella — see `crate::tera_env::meta`), so themes
+//! using `{{ page | metadata(site=site) }}` get verification for free;
+//! hand-rolled heads can still read `page.data.atproto_uri` directly.
+//!
+//! It runs inside [`crate::build::build_index`] before the index freezes, and is
+//! a no-op unless `publish.verification` (default on), `publish.did`, and
+//! `site.url` are all present. Because `italic publish` derives record addresses
+//! through the same functions, a page's proof link and its record can only
+//! disagree between a URL change and the next publish.
 
 use crate::config::Config;
 use crate::doc_index::DocIndex;
-use crate::publish::state::{STATE_PATH, State};
+use crate::publish::document;
 use anyhow::Result;
 use serde_yaml_ng::Value;
-use std::path::Path;
+use std::path::PathBuf;
 
 /// Frontmatter/data key the AT-URI is exposed under (read by templates as
 /// `page.data.atproto_uri`).
@@ -30,27 +36,39 @@ pub fn run(config: &Config, index: &mut DocIndex) -> Result<()> {
     if !publish.verification {
         return Ok(());
     }
-    let state = State::load(Path::new(STATE_PATH))?;
-    inject(index, &state);
+    let (Some(did), Some(site_url)) = (&publish.did, &config.site_url) else {
+        return Ok(());
+    };
+    inject(
+        index,
+        did,
+        site_url,
+        &config.base_path,
+        &publish.collection,
+    );
     Ok(())
 }
 
-/// Set `atproto_uri` on every doc the state has a document record for. Split from
-/// [`run`] (which adds config gating + the state-file read) so it is unit-testable.
-fn inject(index: &mut DocIndex, state: &State) {
-    for (id, records) in &state.records {
-        let Some(uri) = records.document.as_ref().map(|r| r.uri.as_str()) else {
+/// Derive and set `atproto_uri` on every non-draft doc in the publish
+/// collection. Drafts are skipped — they are never published (publish builds
+/// without drafts), so a derived URI would assert a record that will never
+/// exist. Split from [`run`] (which adds the config gating) so it is
+/// unit-testable.
+fn inject(index: &mut DocIndex, did: &str, site_url: &str, base_path: &str, collection: &str) {
+    let ids: Vec<PathBuf> = index
+        .get_collection(collection)
+        .filter(|doc| !doc.draft)
+        .map(|doc| doc.id_path.clone())
+        .collect();
+    for id in ids {
+        let Some(doc) = index.doc_mut(&id) else {
             continue;
         };
-        if uri.is_empty() {
-            continue;
-        }
-        if let Some(doc) = index.doc_mut(Path::new(id)) {
-            doc.data.insert(
-                Value::String(DATA_KEY.to_string()),
-                Value::String(uri.to_string()),
-            );
-        }
+        let url = document::canonical_url(doc, Some(site_url), base_path);
+        doc.data.insert(
+            Value::String(DATA_KEY.to_string()),
+            Value::String(document::document_uri(did, &url)),
+        );
     }
 }
 
@@ -58,59 +76,77 @@ fn inject(index: &mut DocIndex, state: &State) {
 mod tests {
     use super::*;
     use crate::doc::Doc;
-    use crate::publish::state::RecordRef;
-    use std::path::PathBuf;
+    use crate::query::Query;
+    use serde_yaml_ng::Mapping;
+    use std::path::{Path, PathBuf};
 
-    fn index_with(id: &str) -> DocIndex {
-        let mut index = DocIndex::new();
-        index.insert(Doc {
+    const DID: &str = "did:plc:testabc";
+    const SITE_URL: &str = "https://example.com";
+
+    fn doc(id: &str, output: &str) -> Doc {
+        Doc {
             id_path: PathBuf::from(id),
+            output_path: PathBuf::from(output),
             ..Doc::default()
-        });
+        }
+    }
+
+    /// An index of `docs` whose `posts` collection matches `posts/*`.
+    fn index_with(docs: Vec<Doc>) -> DocIndex {
+        let mut index = DocIndex::new();
+        for doc in docs {
+            index.insert(doc);
+        }
+        let m: Mapping = serde_yaml_ng::from_str("path: posts/*").unwrap();
+        index.define_collection("posts", &Query::from_yaml_mapping(&m).unwrap());
         index
     }
 
-    fn state_with_document(id: &str, uri: &str) -> State {
-        let mut state = State::default();
-        state.doc_mut(Path::new(id)).document = Some(RecordRef {
-            rkey: "r".into(),
-            cid: "c".into(),
-            uri: uri.into(),
-        });
-        state
+    fn uri_of<'a>(index: &'a DocIndex, id: &str) -> Option<&'a str> {
+        index
+            .doc(Path::new(id))
+            .unwrap()
+            .data
+            .get(DATA_KEY)
+            .and_then(Value::as_str)
     }
 
     #[test]
-    fn injects_uri_into_doc_data() {
-        let mut index = index_with("posts/hello.md");
-        let state = state_with_document(
-            "posts/hello.md",
-            "at://did:plc:abc/site.standard.document/posts-hello",
-        );
-        inject(&mut index, &state);
-        let doc = index.doc(Path::new("posts/hello.md")).unwrap();
-        assert_eq!(
-            doc.data.get(DATA_KEY).and_then(Value::as_str),
-            Some("at://did:plc:abc/site.standard.document/posts-hello")
-        );
+    fn injects_derived_uri_for_collection_members() {
+        let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
+        inject(&mut index, DID, SITE_URL, "", "posts");
+        // Exactly the URI publish would write: same canonical_url + rkey fns.
+        let expected =
+            document::document_uri(DID, "https://example.com/posts/hello/");
+        assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }
 
     #[test]
-    fn skips_docs_without_a_document_record() {
-        let mut index = index_with("posts/hello.md");
-        // State references a different doc; hello stays untouched.
-        let state = state_with_document("posts/other.md", "at://x/y/z");
-        inject(&mut index, &state);
-        let doc = index.doc(Path::new("posts/hello.md")).unwrap();
-        assert!(doc.data.get(DATA_KEY).is_none());
+    fn skips_drafts() {
+        let mut draft = doc("posts/wip.md", "posts/wip/index.html");
+        draft.draft = true;
+        let mut index = index_with(vec![draft]);
+        inject(&mut index, DID, SITE_URL, "", "posts");
+        assert!(uri_of(&index, "posts/wip.md").is_none());
     }
 
     #[test]
-    fn empty_uri_is_ignored() {
-        let mut index = index_with("posts/hello.md");
-        let state = state_with_document("posts/hello.md", "");
-        inject(&mut index, &state);
-        let doc = index.doc(Path::new("posts/hello.md")).unwrap();
-        assert!(doc.data.get(DATA_KEY).is_none());
+    fn skips_docs_outside_the_collection() {
+        let mut index = index_with(vec![
+            doc("posts/hello.md", "posts/hello/index.html"),
+            doc("about.md", "about/index.html"),
+        ]);
+        inject(&mut index, DID, SITE_URL, "", "posts");
+        assert!(uri_of(&index, "posts/hello.md").is_some());
+        assert!(uri_of(&index, "about.md").is_none());
+    }
+
+    #[test]
+    fn base_path_participates_in_the_derived_url() {
+        let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
+        inject(&mut index, DID, SITE_URL, "/blog", "posts");
+        let expected =
+            document::document_uri(DID, "https://example.com/blog/posts/hello/");
+        assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }
 }

@@ -22,6 +22,12 @@ pub struct Publish {
     /// Account handle (e.g. `alice.example.com`). May be overridden by the
     /// `ITALIC_ATPROTO_HANDLE` env var at auth time; either source works.
     pub handle: Option<String>,
+    /// Account DID (e.g. `did:plc:abc…`). DIDs are public identifiers, so config
+    /// is the right home. Required for the build-time verification artifacts
+    /// (the per-doc `<link>` proof and the `.well-known` file), whose AT-URIs
+    /// are derived from it; `italic publish` prints it on login and errors if
+    /// the authenticated account doesn't match.
+    pub did: Option<String>,
     /// Which collection's docs get a `site.standard.document` record. Defaults to
     /// the always-present `all` collection ([`crate::config::ALL`]).
     pub collection: String,
@@ -56,6 +62,7 @@ pub fn parse_publish(map: &Mapping, default_collection: &str) -> Result<Publish>
         &[
             "pds_host",
             "handle",
+            "did",
             "collection",
             "verification",
             "publication",
@@ -65,6 +72,15 @@ pub fn parse_publish(map: &Mapping, default_collection: &str) -> Result<Publish>
 
     let pds_host = string(map, "pds_host")?.unwrap_or_else(|| DEFAULT_PDS_HOST.to_string());
     let handle = string(map, "handle")?;
+    let did = string(map, "did")?;
+    if let Some(did) = &did
+        && !did.starts_with("did:")
+    {
+        return Err(anyhow!(
+            "publish: `did` must be a DID like `did:plc:…` (got `{did}`); \
+             `italic publish` prints your account's DID on login"
+        ));
+    }
     let collection = string(map, "collection")?.unwrap_or_else(|| default_collection.to_string());
     let verification = bool_or(map, "verification", true)?;
 
@@ -76,6 +92,7 @@ pub fn parse_publish(map: &Mapping, default_collection: &str) -> Result<Publish>
     Ok(Publish {
         pds_host,
         handle,
+        did,
         collection,
         verification,
         publication,
@@ -152,8 +169,22 @@ mod tests {
         let p = parse("handle: alice.example.com\n").unwrap();
         assert_eq!(p.pds_host, DEFAULT_PDS_HOST);
         assert_eq!(p.handle.as_deref(), Some("alice.example.com"));
+        assert!(p.did.is_none());
         assert_eq!(p.collection, "all");
         assert!(p.verification);
+    }
+
+    #[test]
+    fn did_parses() {
+        let p = parse("did: did:plc:abc123\n").unwrap();
+        assert_eq!(p.did.as_deref(), Some("did:plc:abc123"));
+    }
+
+    #[test]
+    fn non_did_value_errors() {
+        // A handle pasted where the DID belongs should fail loudly.
+        let err = format!("{:#}", parse("did: alice.bsky.social\n").unwrap_err());
+        assert!(err.contains("must be a DID"), "{err}");
     }
 
     #[test]

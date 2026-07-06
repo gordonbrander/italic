@@ -116,6 +116,23 @@ pub fn publication_rkey(site_url: &str) -> String {
     rkey_hash(site_url)
 }
 
+/// AT-URI of a doc's `site.standard.document` record. Fully derivable from
+/// config (`publish.did`, `site.url`) + the doc's output path — no publish
+/// state needed. The build-time verification `<link>` and `italic publish`
+/// both construct record addresses through here, so they can never drift.
+pub fn document_uri(did: &str, canonical_url: &str) -> String {
+    format!("at://{did}/{DOCUMENT_NSID}/{}", document_rkey(canonical_url))
+}
+
+/// AT-URI of the site's `site.standard.publication` record, derived the same
+/// way as [`document_uri`]. Emitted into `.well-known` at build time.
+pub fn publication_uri(did: &str, site_url: &str) -> String {
+    format!(
+        "at://{did}/{PUBLICATION_NSID}/{}",
+        publication_rkey(site_url)
+    )
+}
+
 /// Site-root-relative path for a doc, e.g. `/blog/post/` or `/posts/p.html`. This
 /// is the document record's `path` field; combined with the publication URL it
 /// yields the canonical URL.
@@ -259,6 +276,22 @@ mod tests {
         assert!(rkey.chars().all(|c| matches!(c, 'a'..='z' | '2'..='7')));
         // Origin-sensitive: same path on different origins → different rkeys.
         assert_ne!(document_rkey("https://a.com/p/"), document_rkey("https://b.com/p/"));
+    }
+
+    #[test]
+    fn uris_compose_did_nsid_and_derived_rkey() {
+        assert_eq!(
+            document_uri("did:plc:abc", "https://example.com/blog/getting-started/"),
+            "at://did:plc:abc/site.standard.document/\
+             c5oqyxkz4pfia2zmhhye62t42vdzpiwjdmtphglnfxwpg2y5v4ba"
+        );
+        assert_eq!(
+            publication_uri("did:plc:abc", "https://example.com"),
+            format!(
+                "at://did:plc:abc/site.standard.publication/{}",
+                publication_rkey("https://example.com")
+            )
+        );
     }
 
     #[test]

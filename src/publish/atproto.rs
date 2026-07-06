@@ -221,6 +221,7 @@ mod tests {
         Publish {
             pds_host: "https://bsky.social".into(),
             handle: Some("config.handle".into()),
+            did: None,
             collection: "all".into(),
             verification: true,
             publication: Publication::default(),

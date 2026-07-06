@@ -159,6 +159,27 @@ async fn sync(
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", creds.handle, client.did());
 
+    // The build-time verification artifacts derive their AT-URIs from
+    // `publish.did`; records written by a different account would make every
+    // deployed proof point at the wrong repo, so a mismatch is a hard error.
+    // When unset, tell the user where to find their DID (right above).
+    match &publish.did {
+        Some(did) if did != client.did() => {
+            return Err(anyhow!(
+                "publish.did is {did} but you are authenticated as {} — the \
+                 verification artifacts built from config would point at a \
+                 different repo than these records",
+                client.did()
+            ));
+        }
+        None => println!(
+            "hint: add `did: {}` to the publish: block in config.yaml to emit \
+             verification artifacts at build time",
+            client.did()
+        ),
+        Some(_) => {}
+    }
+
     // Warn (don't fail) if the state was written against a different account.
     if let Some(prev) = &state.did
         && prev != client.did()

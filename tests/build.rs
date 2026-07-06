@@ -308,6 +308,14 @@ fn metadata() {
     run_build("24_metadata");
 }
 
+/// The standard.site verification artifacts are derived entirely from config
+/// (`publish.did` + `site.url`) — this fixture has no publish state file, yet
+/// the per-post `<link>` proof and the `.well-known` file are both emitted.
+#[test]
+fn standard_site() {
+    run_build("25_standard_site");
+}
+
 #[test]
 fn scaffold() {
     // The 12_scaffold fixture has no input files — just an `expected/` dir.

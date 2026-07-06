@@ -154,8 +154,10 @@ curl -s https://example.com/posts/getting-started/ \
 
 The per-page tag is emitted by the built-in `standard_link` metadata filter
 (included in the `{{ page | metadata(site=site) }}` umbrella — see the
-[Metadata guide](metadata.md)), so it appears automatically once the publish
-state file holds document records.
+[Metadata guide](metadata.md)). Both proofs are *derived* from `publish.did` +
+`site.url` — record keys are hashes of your canonical URLs — so they're present
+in every build, independent of the publish state file, and must simply agree
+with what the PDS returns.
 
 When the well-known file, the per-page `<link>`, and the PDS records all agree,
 the round-trip is verified: your domain claims the records, and the records exist.

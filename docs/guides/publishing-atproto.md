@@ -143,9 +143,17 @@ not once per document. `--dry-run` shows each document's resolved cover source.
 ## Verification artifacts
 
 standard.site verifies that you own the domain two ways, and italic emits both
-during `build` (gated on `publish.verification`, on by default). They only
-appear **after** your first `publish`, since both need the AT-URIs that
-publishing assigns:
+during `build` (gated on `publish.verification`, on by default). Both AT-URIs
+are **derived** — record keys are hashes of your canonical URLs, so the only
+input that isn't already in your config is your account DID. Set it once:
+
+```yaml
+publish:
+  did: did:plc:…   # printed by `italic publish` on login
+```
+
+With `did` and `site.url` set, every build — including CI builds that have no
+publish state file — emits:
 
 1. **Publication proof** — a static file at
    `/.well-known/site.standard.publication` containing your publication's AT-URI.
@@ -157,8 +165,12 @@ publishing assigns:
    `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
    raw AT-URI from `page.data.atproto_uri`.
 
-So the recommended flow is: `italic publish` once (to mint the records and write
-state), then `italic build` (to emit the proofs), then deploy your HTML.
+Because `italic publish` derives record addresses the same way, build and
+deploy order doesn't matter: HTML deployed before a publish already carries the
+right URIs, and verification passes the moment the records exist. As a
+safeguard, `publish` errors if the account you authenticate as doesn't match
+`publish.did` — otherwise the deployed proofs would point at a different repo
+than the records land in.
 
 ## Previewing a run
 
@@ -187,6 +199,7 @@ for details):
 publish:
   pds_host: https://bsky.social   # optional
   handle: alice.example.com       # or via ITALIC_ATPROTO_HANDLE
+  did: did:plc:abc123             # enables build-time verification artifacts
   collection: posts               # docs to publish; defaults to `all`
   verification: true              # emit the .well-known + <link> proofs
   publication:

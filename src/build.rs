@@ -77,9 +77,9 @@ pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocInd
     // once and share it by `Arc`.
     classify::taxonomies(&config, &mut index);
     classify::backlinks(&mut index);
-    // Inject published docs' AT-URIs (for the standard.site `<link>` proof) before
-    // the index freezes. Gated on `publish.verification`; a no-op until a publish
-    // has written state.
+    // Derive published docs' AT-URIs (for the standard.site `<link>` proof) before
+    // the index freezes. Gated on `publish.verification`; a no-op without the
+    // `publish.did` + `site.url` derivation inputs.
     standard_link::run(&config, &mut index)?;
     Ok((config, site_data, Arc::new(index)))
 }

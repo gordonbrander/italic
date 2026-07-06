@@ -231,6 +231,7 @@ error. See the
 publish:
   pds_host: https://bsky.social   # optional
   handle: alice.example.com       # optional here; usually set via env
+  did: did:plc:abc123             # your account DID; enables the build-time proofs
   collection: posts               # which collection becomes documents
   verification: true              # emit the .well-known + <link> proofs
   publication:
@@ -246,8 +247,9 @@ Top-level keys:
 |-----|------|---------|---------|
 | `pds_host` | string | `https://bsky.social` | PDS XRPC host. |
 | `handle` | string | none | Account handle. Overridden by `ITALIC_ATPROTO_HANDLE`. |
+| `did` | string | none | Your account DID (shown by `italic publish` on login). DIDs are public identifiers. Required for the build-time verification artifacts, whose AT-URIs are derived from it + `site.url`; `publish` errors if the authenticated account doesn't match. |
 | `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
-| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). |
+| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). Needs `did` and `site.url` — the derivation inputs. |
 | `publication` | mapping | — | The `site.standard.publication` record metadata. |
 
 `publication` keys: `name` and `url` (both required to publish), `description`,
