@@ -1,0 +1,16 @@
+site:
+  title: Standard Site Demo
+  url: https://example.com
+
+# The verification artifacts (`<link rel="site.standard.document">` per post,
+# `.well-known/site.standard.publication`) derive their AT-URIs from `did` +
+# `site.url` — no publish state file is involved in this fixture.
+publish:
+  did: did:plc:standardsitefixture
+  publication:
+    name: Standard Site Demo
+    url: https://example.com
+
+# Keep the fixture focused on the derived proofs: no sitemap, no feeds.
+sitemap:
+feed: []
