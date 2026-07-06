@@ -26,9 +26,9 @@ Everything else italic does is pure, offline, and stateless: `content/` in,
   re-running *updates* records in place instead of creating duplicates.
 - It needs **credentials**.
 
-`italic publish` reuses the normal build pipeline to get your fully-rendered
+`italic atproto publish` reuses the normal build pipeline to get your fully-rendered
 documents, then syncs records — it does **not** write any HTML. Run `italic
-build` to update your site; run `italic publish` to update the PDS.
+build` to update your site; run `italic atproto publish` to update the PDS.
 
 ## Quick start
 
@@ -40,7 +40,7 @@ build` to update your site; run `italic publish` to update the PDS.
    change; DIDs can't):
 
    ```sh
-   italic atproto resolve-did alice.example.com
+   italic atproto did alice.example.com
    # did:plc:abc123…
    ```
 
@@ -51,14 +51,14 @@ build` to update your site; run `italic publish` to update the PDS.
    export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
    ```
 
-4. **Configure `publish:`** in `config.yaml`:
+4. **Configure `atproto:`** in `config.yaml`:
 
    ```yaml
    collections:
      posts:
        path: "posts/*.md"
 
-   publish:
+   atproto:
      collection: posts            # which collection becomes documents
      publication:
        name: My Garden
@@ -68,8 +68,8 @@ build` to update your site; run `italic publish` to update the PDS.
 5. **Preview, then publish:**
 
    ```sh
-   italic publish --dry-run   # show what would change — no network calls
-   italic publish             # do it
+   italic atproto publish --dry-run   # show what would change — no network calls
+   italic atproto publish             # do it
    ```
 
 The first run bootstraps the `site.standard.publication` record and creates a
@@ -80,16 +80,16 @@ document per post. Re-running updates the changed records in place.
 Your account is identified by its **DID**, not its handle — the atproto spec
 treats handles as mutable aliases that "need to be resolved to a DID in almost
 all situations", so italic uses the DID everywhere. Look yours up once with
-`italic atproto resolve-did <handle>`.
+`italic atproto did <handle>`.
 
 Your **app password is a secret and never lives in `config.yaml`** (which you
 check into git) — it comes only from the environment. The DID comes only from
 the environment too (it also drives the build-time verification artifacts —
-see below); the non-secret host falls back to the `publish:` config:
+see below); the non-secret host falls back to the `atproto:` config:
 
 | Setting | Env var | Config fallback |
 |---------|---------|-----------------|
-| PDS host | `ITALIC_ATPROTO_PDS_HOST` | `publish.pds_host` (default `https://bsky.social`) |
+| PDS host | `ITALIC_ATPROTO_PDS_HOST` | `atproto.pds_host` (default `https://bsky.social`) |
 | DID | `ITALIC_ATPROTO_DID` | **never** |
 | App password | `ITALIC_ATPROTO_APP_PASSWORD` | **never** |
 
@@ -114,7 +114,7 @@ what was published, or hand-edit an entry to recover from a mistake.
 Documents use stable record keys derived from their canonical URL, so they
 update in place (`putRecord`) every run — and the keys are reconstructible from
 config + content even if the state file is lost. The state file mainly lets
-`pubstatus` verify what's on the PDS against what was last published.
+`atproto status` verify what's on the PDS against what was last published.
 
 Keep `.italic/atproto.yaml` out of public repos (it isn't secret, but it's
 noise). It is written incrementally, after each record, so an interrupted run
@@ -137,7 +137,7 @@ fields — no new content modeling:
 | `coverImage` | the page's `image:` social image, else `site.image` (uploaded as a blob) |
 | `site` | your publication record's AT-URI |
 
-The **publication** record comes from `publish.publication` — `name` and `url`
+The **publication** record comes from `atproto.publication` — `name` and `url`
 are required to publish it (the build fails loudly if either is missing). An
 optional `icon:` path is uploaded as a blob.
 
@@ -157,7 +157,7 @@ not once per document. `--dry-run` shows each document's resolved cover source.
 ## Verification artifacts
 
 standard.site verifies that you own the domain two ways, and italic emits both
-during `build` (gated on `publish.verification`, on by default). Both AT-URIs
+during `build` (gated on `atproto.verification`, on by default). Both AT-URIs
 are **derived** — record keys are hashes of your canonical URLs, so the only
 input that isn't already in your config is your account DID, read from the same
 `ITALIC_ATPROTO_DID` env var publishing uses. Note that `build` needs only the
@@ -177,7 +177,7 @@ that have no publish state file — emits:
    `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
    raw AT-URI from `page.data.atproto_uri`.
 
-Because `italic publish` derives record addresses the same way — and
+Because `italic atproto publish` derives record addresses the same way — and
 authenticates *as* that same DID — build and deploy order doesn't matter: HTML
 deployed before a publish already carries the right URIs, and verification
 passes the moment the records exist. The proofs and the records can't point at
@@ -186,14 +186,14 @@ different repos, because both come from the one `ITALIC_ATPROTO_DID`.
 ## Previewing a run
 
 ```sh
-italic publish --dry-run   # build records, diff against state, no network
+italic atproto publish --dry-run   # build records, diff against state, no network
 ```
 
 `--dry-run` is the safe preview — it renders every record and reports what it
 would *create* vs. *update* without touching the network. Reach for it whenever
 you change config or templates.
 
-Drafts are never published: `publish` builds with drafts excluded, so a
+Drafts are never published: `atproto publish` builds with drafts excluded, so a
 `draft: true` post stays out of the PDS just as it stays out of `italic build`.
 
 ## Rate limits
@@ -203,11 +203,11 @@ enforce write rate limits. italic spaces out writes with a small throttle.
 
 ## Configuration summary
 
-The full `publish:` block (see the [config reference](../reference/config.md#publish)
+The full `atproto:` block (see the [config reference](../reference/config.md#atproto)
 for details):
 
 ```yaml
-publish:
+atproto:
   pds_host: https://bsky.social   # optional
   collection: posts               # docs to publish; defaults to `all`
   verification: true              # emit the .well-known + <link> proofs
@@ -223,7 +223,7 @@ Your identity (`ITALIC_ATPROTO_DID`) and app password
 
 ## See also
 
-- [CLI reference](../reference/cli.md#italic-publish) — the `publish` command and its flags
-- [Configuration reference](../reference/config.md#publish) — every `publish:` key
+- [CLI reference](../reference/cli.md#italic-atproto-publish) — the `atproto publish` command and its flags
+- [Configuration reference](../reference/config.md#atproto) — every `atproto:` key
 - [Deployment](deployment.md) — hosting your static HTML
 - [standard.site](https://standard.site/)

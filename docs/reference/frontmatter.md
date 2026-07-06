@@ -83,7 +83,7 @@ literal file. See the [Aliases guide](../guides/aliases.md).
 
 ## ATProto publishing
 
-[`italic publish`](../guides/publishing-atproto.md) needs no dedicated
+[`italic atproto publish`](../guides/publishing-atproto.md) needs no dedicated
 frontmatter: the document's `coverImage` blob comes from the page's `image:`
 (then `site.image`) — the same fields the
 [metadata filters](../guides/metadata.md) use for social cards.

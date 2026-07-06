@@ -6,7 +6,7 @@ site:
 # `.well-known/site.standard.publication`) derive their AT-URIs from the
 # ITALIC_ATPROTO_DID env var (set by the test harness) + `site.url` — no
 # publish state file is involved in this fixture.
-publish:
+atproto:
   publication:
     name: Standard Site Demo
     url: https://example.com

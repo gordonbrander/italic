@@ -25,7 +25,7 @@ src/
                    #   markup (incl. wikilink resolution), archive,
                    #   template, write, static_copy; plus the standard.site
                    #   verification artifacts (well_known, standard_link)
-  publish.rs       # `italic publish`: sync to an ATProto PDS (networked)
+  atproto.rs       # `italic atproto publish`: sync to an ATProto PDS (networked)
   publish/         # atproto client+auth, state file, document records
   tera_env.rs      # Tera environment assembly
   tera_env/        # one module per custom function/filter

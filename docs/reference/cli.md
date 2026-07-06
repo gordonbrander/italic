@@ -47,12 +47,12 @@ the output directory.
 italic watch
 ```
 
-## `italic publish`
+## `italic atproto publish`
 
 Build the site and sync it to your ATProto PDS as standard.site documents.
 Unlike the other commands this one is networked, stateful, and authenticated,
 and it writes **no HTML** — it reuses the build only to obtain your rendered
-documents. Requires a [`publish:`](config.md#publish) block and credentials
+documents. Requires an [`atproto:`](config.md#atproto) block and credentials
 (see the [Publishing guide](../guides/publishing-atproto.md)).
 
 | Flag | Default | Meaning |
@@ -62,20 +62,20 @@ documents. Requires a [`publish:`](config.md#publish) block and credentials
 Drafts are never published (the build runs with drafts excluded). Your account
 DID and app password come from the environment (`ITALIC_ATPROTO_DID`,
 `ITALIC_ATPROTO_APP_PASSWORD`) — never `config.yaml`. Look your DID up with
-[`italic atproto resolve-did`](#italic-atproto-resolve-did-handle).
+[`italic atproto did`](#italic-atproto-did-handle).
 
 ```sh
-italic publish --dry-run   # preview — safe, no network
-italic publish             # sync document + publication records
+italic atproto publish --dry-run   # preview — safe, no network
+italic atproto publish             # sync document + publication records
 ```
 
-## `italic pubstatus`
+## `italic atproto status`
 
-Read back the records `italic publish` wrote and confirm they still exist on your
+Read back the records `italic atproto publish` wrote and confirm they still exist on your
 PDS and match local state. Networked, authenticated, and **read-only** — it never
-writes a record or touches the state file. Unlike `publish` it does **not** build
-the site, so it works even while your content is mid-edit. Requires a
-[`publish:`](config.md#publish) block, credentials, and a prior `publish` (it
+writes a record or touches the state file. Unlike `atproto publish` it does **not** build
+the site, so it works even while your content is mid-edit. Requires
+an [`atproto:`](config.md#atproto) block, credentials, and a prior publish (it
 checks what's recorded in `.italic/atproto.yaml`).
 
 For each recorded record it reports `ok` (present, content hash matches),
@@ -84,13 +84,13 @@ or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
 nonzero**, so it can gate a CI step.
 
 ```sh
-italic pubstatus   # check every published record
+italic atproto status   # check every published record
 ```
 
 See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,
 including manual verification with `curl`.
 
-## `italic atproto resolve-did <handle>`
+## `italic atproto did <handle>`
 
 Resolve an ATProto handle (e.g. `alice.bsky.social`) to its DID — the permanent
 account identifier that `ITALIC_ATPROTO_DID` expects. Networked but
@@ -101,10 +101,10 @@ The bare DID is printed to stdout (so it's scriptable); an `export` hint goes
 to stderr.
 
 ```sh
-italic atproto resolve-did alice.bsky.social
+italic atproto did alice.bsky.social
 # did:plc:abc123…
 
-export ITALIC_ATPROTO_DID=$(italic atproto resolve-did alice.bsky.social)
+export ITALIC_ATPROTO_DID=$(italic atproto did alice.bsky.social)
 ```
 
 ## `italic new <path>`

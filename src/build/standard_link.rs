@@ -3,7 +3,7 @@
 //! in its `<head>`. The AT-URI is fully derivable from the inputs at hand —
 //! `at://` + the account DID (`ITALIC_ATPROTO_DID`) + the collection NSID + an
 //! rkey hashed from the doc's canonical URL (see
-//! [`crate::publish::document::document_uri`]) — so this pass computes it
+//! [`crate::atproto::document::document_uri`]) — so this pass computes it
 //! directly; no publish state, no network, and the proofs are present in every
 //! build (including CI, where the state file typically doesn't exist).
 //!
@@ -14,14 +14,14 @@
 //! hand-rolled heads can still read `page.data.atproto_uri` directly.
 //!
 //! It runs inside [`crate::build::build_index`] before the index freezes, and is
-//! a no-op unless `publish.verification` (default on), the `ITALIC_ATPROTO_DID`
-//! env var, and `site.url` are all present. Because `italic publish` derives
+//! a no-op unless `atproto.verification` (default on), the `ITALIC_ATPROTO_DID`
+//! env var, and `site.url` are all present. Because `italic atproto publish` derives
 //! record addresses through the same functions, a page's proof link and its
-//! record can only disagree between a URL change and the next publish.
+//! record can only disagree between a URL change and the next atproto.
 
+use crate::atproto::document;
 use crate::config::Config;
 use crate::doc_index::DocIndex;
-use crate::publish::document;
 use anyhow::Result;
 use serde_yaml_ng::Value;
 use std::path::PathBuf;
@@ -31,16 +31,16 @@ use std::path::PathBuf;
 pub const DATA_KEY: &str = "atproto_uri";
 
 pub fn run(config: &Config, did: Option<&str>, index: &mut DocIndex) -> Result<()> {
-    let Some(publish) = &config.publish else {
+    let Some(atproto) = &config.atproto else {
         return Ok(());
     };
-    if !publish.verification {
+    if !atproto.verification {
         return Ok(());
     }
     let (Some(did), Some(site_url)) = (did, &config.site_url) else {
         return Ok(());
     };
-    inject(index, did, site_url, &config.base_path, &publish.collection);
+    inject(index, did, site_url, &config.base_path, &atproto.collection);
     Ok(())
 }
 
@@ -110,7 +110,7 @@ mod tests {
     fn injects_derived_uri_for_collection_members() {
         let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
         inject(&mut index, DID, SITE_URL, "", "posts");
-        // Exactly the URI publish would write: same canonical_url + rkey fns.
+        // Exactly the URI atproto would write: same canonical_url + rkey fns.
         let expected = document::document_uri(DID, "https://example.com/posts/hello/");
         assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }

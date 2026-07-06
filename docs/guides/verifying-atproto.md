@@ -1,23 +1,23 @@
 # Verifying your ATProto records
 
-After `italic publish`, your posts live in your PDS as
+After `italic atproto publish`, your posts live in your PDS as
 [`site.standard.document`](https://standard.site/docs/lexicons/document) and
 [`site.standard.publication`](https://standard.site/docs/lexicons/publication)
 records. This guide covers how to
 confirm they're really there and still match what italic published — first with
-the built-in `italic pubstatus` command, then by hand with `curl` for when you want
+the built-in `italic atproto status` command, then by hand with `curl` for when you want
 to inspect records directly.
 
 > The other side of this — *creating* the records — is covered in
 > [Publishing to the ATmosphere](publishing-atproto.md). This guide assumes
-> you've already run `italic publish` at least once.
+> you've already run `italic atproto publish` at least once.
 
-## `italic pubstatus`
+## `italic atproto status`
 
 The quickest check is the built-in command:
 
 ```sh
-italic pubstatus
+italic atproto status
 ```
 
 It reads back every record italic recorded in `.italic/atproto.yaml`, fetches
@@ -41,31 +41,31 @@ Each record is classified as:
 
 All records, including `site.standard.publication`, are checked for content drift.
 (State files written before the publication's CID was recorded fall back to an
-existence-only check for that one record — re-run `italic publish` to record it.)
+existence-only check for that one record — re-run `italic atproto publish` to record it.)
 
-If anything is MISSING or CHANGED, `italic pubstatus` **exits nonzero**, so you can
+If anything is MISSING or CHANGED, `italic atproto status` **exits nonzero**, so you can
 gate a CI step or a deploy script on it.
 
 ### What it needs
 
-`italic pubstatus` is networked, **authenticated**, and **read-only** — it never
+`italic atproto status` is networked, **authenticated**, and **read-only** — it never
 writes a record or modifies the state file. It needs:
 
-- A [`publish:`](../reference/config.md#publish) block in `config.yaml`.
+- An [`atproto:`](../reference/config.md#atproto) block in `config.yaml`.
 - Credentials in the environment — the same
   `ITALIC_ATPROTO_DID` / `ITALIC_ATPROTO_APP_PASSWORD` you use to publish.
-- A prior `italic publish`, since it verifies what's recorded in
+- A prior `italic atproto publish`, since it verifies what's recorded in
   `.italic/atproto.yaml`. With no state there's nothing to verify, and the
   command says so.
 
-Unlike `publish`, `pubstatus` does **not** build your site — it only reads config
+Unlike `atproto publish`, `atproto status` does **not** build your site — it only reads config
 and state — so it still works while your content is mid-edit.
 
-See the [CLI reference](../reference/cli.md#italic-pubstatus) for details.
+See the [CLI reference](../reference/cli.md#italic-atproto-status) for details.
 
 ## Manual verification (under the hood)
 
-`italic pubstatus` calls the same public XRPC endpoints you can hit yourself. ATProto
+`italic atproto status` calls the same public XRPC endpoints you can hit yourself. ATProto
 reads are **public and unauthenticated**, so any record in a repo is fetchable
 with plain `curl` — no app password, no session. Reach for this when you want to
 inspect a record's actual fields, debug a mapping, or verify from a machine that
@@ -80,7 +80,7 @@ Records are addressed by your account's **DID** and served by your **PDS**:
 ```sh
 HANDLE=alice.example.com
 
-# handle -> DID (or: italic atproto resolve-did $HANDLE)
+# handle -> DID (or: italic atproto did $HANDLE)
 DID=$(curl -s \
   "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=$HANDLE" \
   | jq -r .did)
@@ -191,7 +191,7 @@ goat repo unpack repo.car        # extract records to a directory tree
 goat repo verify repo.car        # check the commit signature & MST integrity
 ```
 
-For routine "did my publish work?" checks, `italic pubstatus` is enough; reach for
+For routine "did my publish work?" checks, `italic atproto status` is enough; reach for
 the CAR file when you care about cryptographic provenance.
 
 ## Quick reference
@@ -211,5 +211,5 @@ All are unauthenticated `GET`s against your PDS (identity/PLC lookups go to
 ## See also
 
 - [Publishing to the ATmosphere](publishing-atproto.md) — creating the records this guide verifies
-- [CLI reference](../reference/cli.md#italic-pubstatus) — the `pubstatus` command and its flags
+- [CLI reference](../reference/cli.md#italic-atproto-status) — the `atproto status` command and its flags
 - [ATProto HTTP reference](https://docs.bsky.app/docs/category/http-reference) · [standard.site lexicons](https://standard.site/docs/lexicons/document)

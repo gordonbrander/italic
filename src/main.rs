@@ -29,15 +29,7 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1")]
         host: IpAddr,
     },
-    /// Publish standard.site document records to an ATProto PDS
-    Publish {
-        /// Build records and show what would change, but make no network calls
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Check ATProto records on your PDS match local publish state
-    Pubstatus,
-    /// ATProto utilities
+    /// Publish to and inspect your ATProto PDS
     Atproto {
         #[command(subcommand)]
         command: AtprotoCommand,
@@ -55,8 +47,16 @@ enum Command {
 
 #[derive(Subcommand)]
 enum AtprotoCommand {
+    /// Publish standard.site document records to your PDS
+    Publish {
+        /// Build records and show what would change, but make no network calls
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Check ATProto records on your PDS match local publish state
+    Status,
     /// Resolve a handle (e.g. alice.bsky.social) to its DID, for ITALIC_ATPROTO_DID
-    ResolveDid {
+    Did {
         /// The handle to resolve
         handle: String,
     },
@@ -66,11 +66,13 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Build { drafts } => italic::build(drafts),
-        Command::Publish { dry_run } => italic::publish(italic::publish::Options { dry_run }),
-        Command::Pubstatus => italic::pubstatus(),
-        Command::Atproto {
-            command: AtprotoCommand::ResolveDid { handle },
-        } => italic::atproto_resolve_did(&handle),
+        Command::Atproto { command } => match command {
+            AtprotoCommand::Publish { dry_run } => {
+                italic::atproto_publish(italic::atproto::Options { dry_run })
+            }
+            AtprotoCommand::Status => italic::atproto_status(),
+            AtprotoCommand::Did { handle } => italic::atproto_did(&handle),
+        },
         Command::Watch => italic::watch(),
         Command::Serve { port, host } => italic::serve(host, port),
         Command::New { path } => italic::new(&path),

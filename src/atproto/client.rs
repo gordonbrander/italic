@@ -6,12 +6,12 @@
 //! identifier, and the same env var drives the build-time verification
 //! artifacts, so there is a single source of truth. The app password comes only
 //! from the environment — **never** `config.yaml`. The non-secret host comes
-//! from the environment too, falling back to the `publish:` config.
+//! from the environment too, falling back to the `atproto:` config.
 //! The [`Client`] wraps an `atrium-api` agent and exposes the repo operations
 //! publishing needs: [`Client::upload_blob`] and [`Client::put_record`]
 //! (create-or-update at a stable rkey, for documents/publication).
 
-use crate::publish::config::Publish;
+use crate::atproto::config::Atproto;
 use anyhow::{Result, anyhow};
 use atrium_api::agent::Agent;
 use atrium_api::agent::atp_agent::{CredentialSession, store::MemorySessionStore};
@@ -20,7 +20,7 @@ use atrium_xrpc_client::reqwest::ReqwestClient;
 use serde::Serialize;
 
 /// Env var names. The app password and DID are read only from here; the host
-/// reads from here first, then falls back to the (non-secret) `publish:` config.
+/// reads from here first, then falls back to the (non-secret) `atproto:` config.
 const ENV_PDS_HOST: &str = "ITALIC_ATPROTO_PDS_HOST";
 const ENV_DID: &str = "ITALIC_ATPROTO_DID";
 const ENV_APP_PASSWORD: &str = "ITALIC_ATPROTO_APP_PASSWORD";
@@ -36,7 +36,7 @@ pub fn env_did() -> Result<Option<String>> {
         Some(did) if did.starts_with("did:") => Ok(Some(did)),
         Some(other) => Err(anyhow!(
             "{ENV_DID} must be a DID like `did:plc:…` (got `{other}`) — \
-             run `italic atproto resolve-did {other}` to look yours up"
+             run `italic atproto did {other}` to look yours up"
         )),
     }
 }
@@ -54,13 +54,13 @@ impl Credentials {
     /// non-secret host. The DID is read only from `ITALIC_ATPROTO_DID` and the
     /// app password only from `ITALIC_ATPROTO_APP_PASSWORD` (secret — never
     /// config); either one missing is a hard error.
-    pub fn load(publish: &Publish) -> Result<Credentials> {
-        let pds_host = env(ENV_PDS_HOST).unwrap_or_else(|| publish.pds_host.clone());
+    pub fn load(atproto: &Atproto) -> Result<Credentials> {
+        let pds_host = env(ENV_PDS_HOST).unwrap_or_else(|| atproto.pds_host.clone());
 
         let did = env_did()?.ok_or_else(|| {
             anyhow!(
                 "no DID — set {ENV_DID} \
-                 (run `italic atproto resolve-did <your-handle>` to look it up)"
+                 (run `italic atproto did <your-handle>` to look it up)"
             )
         })?;
 
@@ -191,7 +191,7 @@ impl Client {
     /// repo. `Ok(None)` means the record does not exist (`RecordNotFound`);
     /// `Ok(Some(cid))` means it's present. Other XRPC errors propagate.
     ///
-    /// Read-only — used by `italic pubstatus` to confirm published records still
+    /// Read-only — used by `italic atproto status` to confirm published records still
     /// exist and match local state.
     pub async fn get_record_cid(&self, collection: &str, rkey: &str) -> Result<Option<String>> {
         let params = atrium_api::com::atproto::repo::get_record::ParametersData {
@@ -239,10 +239,10 @@ fn is_record_not_found(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::publish::config::{Publication, Publish};
+    use crate::atproto::config::{Atproto, Publication};
 
-    fn publish_config() -> Publish {
-        Publish {
+    fn publish_config() -> Atproto {
+        Atproto {
             pds_host: "https://bsky.social".into(),
             collection: "all".into(),
             verification: true,

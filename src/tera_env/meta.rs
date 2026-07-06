@@ -312,8 +312,8 @@ fn render_canonical(page: &Value, cfg: &MetaCfg) -> Vec<String> {
 }
 
 /// standard.site per-document ownership proof, from `page.data.atproto_uri`
-/// (injected by the `standard_link` build pass once `italic publish` has
-/// recorded document records — see `crate::build::standard_link`). The AT-URI is
+/// (derived by the `standard_link` build pass when `ITALIC_ATPROTO_DID` and
+/// `site.url` are set — see `crate::build::standard_link`). The AT-URI is
 /// already absolute; it must not go through [`abs_url`], which would mangle the
 /// `at://` scheme.
 fn render_standard_link(page: &Value) -> Vec<String> {

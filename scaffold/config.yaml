@@ -52,11 +52,11 @@
 # hashtags: true
 
 ## Publish to an ATProto PDS (standard.site documents + optional Bluesky
-## summaries) with `italic publish`. Non-secret settings only — your DID and
-## app password come from the environment (ITALIC_ATPROTO_DID,
+## summaries) with `italic atproto publish`. Non-secret settings only — your
+## DID and app password come from the environment (ITALIC_ATPROTO_DID,
 ## ITALIC_ATPROTO_APP_PASSWORD), never this file. Look your DID up with
-## `italic atproto resolve-did <handle>`.
-# publish:
+## `italic atproto did <handle>`.
+# atproto:
 #   pds_host: https://bsky.social
 #   # Which collection's docs become site.standard.document records.
 #   collection: posts

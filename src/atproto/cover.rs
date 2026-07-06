@@ -8,7 +8,7 @@
 //! files by walking the static source roots (italic serves images only from
 //! `static/`, so every locally-served image path is findable there). Pure
 //! (filesystem existence checks only); the upload/caching orchestration lives
-//! in [`crate::publish`].
+//! in [`crate::atproto`].
 
 use crate::doc::Doc;
 use serde_yaml_ng::Value;

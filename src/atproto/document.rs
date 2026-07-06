@@ -5,7 +5,7 @@
 //! and the record set is small, so we serialize plain serde structs to the
 //! documented JSON shape (`$type` discriminator + camelCase fields, optionals
 //! omitted). The PDS validates optimistically, and records are sent as
-//! `Unknown` either way (see [`crate::publish::atproto`]). Blob references reuse
+//! `Unknown` either way (see [`crate::atproto::client`]). Blob references reuse
 //! `atrium_api::types::BlobRef`, which already serializes to the data-model blob
 //! shape.
 
@@ -119,7 +119,7 @@ pub fn publication_rkey(site_url: &str) -> String {
 /// AT-URI of a doc's `site.standard.document` record. Fully derivable from the
 /// account DID (`ITALIC_ATPROTO_DID`), `site.url`, and the doc's output path —
 /// no publish state needed. The build-time verification `<link>` and `italic
-/// publish` both construct record addresses through here, so they can never
+/// atproto` both construct record addresses through here, so they can never
 /// drift.
 pub fn document_uri(did: &str, canonical_url: &str) -> String {
     format!(
@@ -212,17 +212,17 @@ pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRe
 /// Build the `site.standard.publication` record from config. `icon` is the
 /// pre-uploaded icon blob. Errors if the required `name`/`url` are missing.
 pub fn publication(
-    config: &crate::publish::config::Publication,
+    config: &crate::atproto::config::Publication,
     icon: Option<BlobRef>,
 ) -> anyhow::Result<Publication> {
     let name = config
         .name
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("publish.publication.name is required to publish"))?;
+        .ok_or_else(|| anyhow::anyhow!("atproto.publication.name is required to publish"))?;
     let url = config
         .url
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("publish.publication.url is required to publish"))?;
+        .ok_or_else(|| anyhow::anyhow!("atproto.publication.url is required to publish"))?;
     Ok(Publication {
         type_: PUBLICATION_NSID,
         url,
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn publication_requires_name_and_url() {
-        let mut cfg = crate::publish::config::Publication::default();
+        let mut cfg = crate::atproto::config::Publication::default();
         assert!(publication(&cfg, None).is_err());
         cfg.name = Some("My Garden".into());
         assert!(publication(&cfg, None).is_err());

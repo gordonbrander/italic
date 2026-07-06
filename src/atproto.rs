@@ -1,4 +1,4 @@
-//! The `publish` layer: sync a built [`DocIndex`](crate::doc_index::DocIndex) to
+//! The `atproto` layer: sync a built [`DocIndex`](crate::doc_index::DocIndex) to
 //! the user's ATProto PDS as `site.standard.*` records.
 //!
 //! Unlike the build pipeline — pure, offline, deterministic — publishing is
@@ -8,20 +8,20 @@
 //! ([`state`]) remembers which records map to which docs so re-running *updates*
 //! records instead of duplicating them.
 
-pub mod atproto;
+pub mod client;
 pub mod config;
 pub mod cover;
 pub mod document;
-pub mod pubstatus;
 pub mod state;
+pub mod status;
 
+use crate::atproto::client::{Client, Credentials};
+use crate::atproto::config::Atproto;
+use crate::atproto::cover::Cover;
+use crate::atproto::state::{RecordRef, State};
 use crate::config::Config;
 use crate::doc::Doc;
 use crate::doc_index::DocIndex;
-use crate::publish::atproto::{Client, Credentials};
-use crate::publish::config::Publish;
-use crate::publish::cover::Cover;
-use crate::publish::state::{RecordRef, State};
 use crate::site_data::SiteData;
 use anyhow::{Context, Result, anyhow};
 use atrium_api::types::BlobRef;
@@ -43,16 +43,16 @@ const WRITE_THROTTLE: Duration = Duration::from_millis(200);
 /// Publish a built [`DocIndex`] to the PDS. Tokio is confined to this function
 /// (the build pipeline that produced `index` is sync/rayon); it builds a
 /// current-thread runtime and drives the async sync to completion.
-pub fn run(
+pub fn publish(
     config: &Config,
     site_data: &SiteData,
     index: &DocIndex,
     options: Options,
 ) -> Result<()> {
-    let publish = config
-        .publish
+    let atproto = config
+        .atproto
         .as_ref()
-        .ok_or_else(|| anyhow!("no `publish:` block in config.yaml — nothing to publish"))?;
+        .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to publish"))?;
 
     // Cover fallback inputs: the site-wide default image and the static roots
     // in lookup order (site first, then theme — the reverse of the copy order,
@@ -67,7 +67,7 @@ pub fn run(
     // Collect the docs to publish, sorted by id_path for deterministic, diffable
     // syncs (the collection iterator is HashMap-backed, so order is otherwise
     // unspecified).
-    let mut docs: Vec<&Doc> = index.get_collection(&publish.collection).collect();
+    let mut docs: Vec<&Doc> = index.get_collection(&atproto.collection).collect();
     docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
 
     // Document rkeys are derived from each doc's absolute canonical URL, so the
@@ -84,7 +84,7 @@ pub fn run(
     let mut state = State::load(state_path)?;
 
     if options.dry_run {
-        return dry_run(config, publish, &docs, &state, site_image, &static_roots);
+        return dry_run(config, atproto, &docs, &state, site_image, &static_roots);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -93,7 +93,7 @@ pub fn run(
         .context("creating tokio runtime")?;
     runtime.block_on(sync(
         config,
-        publish,
+        atproto,
         &docs,
         &mut state,
         state_path,
@@ -106,13 +106,13 @@ pub fn run(
 /// is read-only filesystem checks).
 fn dry_run(
     config: &Config,
-    publish: &Publish,
+    atproto: &Atproto,
     docs: &[&Doc],
     state: &State,
     site_image: Option<&str>,
     static_roots: &[PathBuf],
 ) -> Result<()> {
-    println!("publish --dry-run (no network calls)");
+    println!("atproto publish --dry-run (no network calls)");
     println!(
         "  publication: {}",
         state
@@ -120,7 +120,7 @@ fn dry_run(
             .as_deref()
             .unwrap_or("(not yet bootstrapped — would be created)")
     );
-    println!("  documents ({}):", publish.collection);
+    println!("  documents ({}):", atproto.collection);
     for doc in docs {
         let existing = state.doc(&doc.id_path).and_then(|r| r.document.as_ref());
         let verb = if existing.is_some() {
@@ -153,14 +153,14 @@ fn dry_run(
 /// a crash never loses progress.
 async fn sync(
     config: &Config,
-    publish: &Publish,
+    atproto: &Atproto,
     docs: &[&Doc],
     state: &mut State,
     state_path: &Path,
     site_image: Option<&str>,
     static_roots: &[PathBuf],
 ) -> Result<()> {
-    let creds = Credentials::load(publish)?;
+    let creds = Credentials::load(atproto)?;
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", client.handle(), client.did());
 
@@ -177,13 +177,13 @@ async fn sync(
     state.did = Some(client.did().to_string());
 
     // Publication bootstrap — documents reference it via `site`.
-    // `run` guarantees `site_url` is set.
+    // `publish` guarantees `site_url` is set.
     let site_url = config
         .site_url
         .as_deref()
         .expect("site.url required when publishing documents");
     let publication_uri =
-        bootstrap_publication(&client, publish, site_url, state, state_path).await?;
+        bootstrap_publication(&client, atproto, site_url, state, state_path).await?;
 
     let mut put_docs = 0usize;
     let mut covers = CoverUploader::new(site_image, static_roots);
@@ -218,16 +218,16 @@ async fn sync(
 /// site gets its own publication record on a shared PDS.
 async fn bootstrap_publication(
     client: &Client,
-    publish: &Publish,
+    atproto: &Atproto,
     site_url: &str,
     state: &mut State,
     state_path: &Path,
 ) -> Result<String> {
-    let icon = match &publish.publication.icon {
+    let icon = match &atproto.publication.icon {
         Some(path) => Some(upload_image(client, path).await?),
         None => None,
     };
-    let record = document::publication(&publish.publication, icon)?;
+    let record = document::publication(&atproto.publication, icon)?;
     let rkey = document::publication_rkey(site_url);
     let written = client
         .put_record(document::PUBLICATION_NSID, &rkey, &record)

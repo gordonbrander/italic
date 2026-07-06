@@ -1,7 +1,7 @@
-//! The publish sidecar state file (`.italic/atproto.yaml`).
+//! The atproto sidecar state file (`.italic/atproto.yaml`).
 //!
-//! This is the crux that makes `publish` different from `build`: build holds no
-//! memory between runs, but publish must. The state remembers which PDS records
+//! This is the crux that makes `atproto` different from `build`: build holds no
+//! memory between runs, but atproto must. The state remembers which PDS records
 //! map to which docs (keyed by `id_path`) plus the publication record's AT-URI,
 //! so re-running *updates* records via `putRecord` instead of duplicating them.
 //!
@@ -43,14 +43,14 @@ pub struct DocRecords {
 /// YAML keys). A `BTreeMap` keeps the file deterministic/diff-friendly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
-    /// The account DID this state was written against. Lets `publish` warn if the
+    /// The account DID this state was written against. Lets `atproto` warn if the
     /// configured handle resolves to a different repo than the records belong to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub did: Option<String>,
     /// AT-URI of the one `site.standard.publication` record, once bootstrapped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publication_uri: Option<String>,
-    /// CID of the publication record, so `pubstatus` can detect drift (not just
+    /// CID of the publication record, so `atproto status` can detect drift (not just
     /// existence). Optional for backward compatibility with state files written
     /// before this was recorded; absent there means existence-only verification.
     #[serde(default, skip_serializing_if = "Option::is_none")]

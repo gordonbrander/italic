@@ -216,20 +216,20 @@ Override any feed's markup with a disk archive at the matching path (e.g.
 `collections:`. Feeds cap at the 25 most recent items per the collection's own
 order.
 
-## `publish`
+## `atproto`
 
-Non-secret settings for `italic publish`, which syncs your site to an ATProto
+Non-secret settings for `italic atproto publish`, which syncs your site to an ATProto
 PDS as [standard.site](https://standard.site/) documents. Absent by default —
-without a `publish:` block, `italic publish`
+without an `atproto:` block, `italic atproto publish`
 errors. **Your identity and secrets never go here**: the account DID comes from
 the environment (`ITALIC_ATPROTO_DID` — look it up with
-`italic atproto resolve-did <handle>`), and so does your app password
+`italic atproto did <handle>`), and so does your app password
 (`ITALIC_ATPROTO_APP_PASSWORD`). Unknown keys (in the block or its sub-maps)
 are an error. See the
 [Publishing guide](../guides/publishing-atproto.md).
 
 ```yaml
-publish:
+atproto:
   pds_host: https://bsky.social   # optional
   collection: posts               # which collection becomes documents
   verification: true              # emit the .well-known + <link> proofs

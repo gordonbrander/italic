@@ -61,7 +61,7 @@ pub struct Output {
 /// `content/`, classify collections, fill defaults, render markup, classify
 /// taxonomies and backlinks, and freeze the index into an `Arc`. This is the
 /// portion shared by `build` (which goes on to render and write output) and
-/// `publish` (which reads the frozen index to sync records to a PDS, never
+/// `atproto` (which reads the frozen index to sync records to a PDS, never
 /// writing HTML). Stops before archives/templates/write — see [`run`].
 pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocIndex>)> {
     let (config, site) = Config::load_with_theme(Path::new("config.yaml"))?;
@@ -78,9 +78,9 @@ pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocInd
     classify::taxonomies(&config, &mut index);
     classify::backlinks(&mut index);
     // Derive published docs' AT-URIs (for the standard.site `<link>` proof) before
-    // the index freezes. Gated on `publish.verification`; a no-op without the
+    // the index freezes. Gated on `atproto.verification`; a no-op without the
     // `ITALIC_ATPROTO_DID` + `site.url` derivation inputs.
-    let did = crate::publish::atproto::env_did()?;
+    let did = crate::atproto::client::env_did()?;
     standard_link::run(&config, did.as_deref(), &mut index)?;
     Ok((config, site_data, Arc::new(index)))
 }
@@ -95,8 +95,8 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let mut outputs = template::run(&config, &site_data, &index, archive_docs)?;
     outputs.extend(alias::run(&config, &index)?);
     // The standard.site publication proof (.well-known), gated on
-    // `publish.verification` + the `ITALIC_ATPROTO_DID`/`site.url` inputs.
-    let did = crate::publish::atproto::env_did()?;
+    // `atproto.verification` + the `ITALIC_ATPROTO_DID`/`site.url` inputs.
+    let did = crate::atproto::client::env_did()?;
     outputs.extend(well_known::run(&config, did.as_deref())?);
     write::run(&config, &outputs)?;
     static_copy::run(&config)?;

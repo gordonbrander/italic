@@ -44,7 +44,7 @@ full digest is used (not truncated) so collisions are negligible.
 ### `site.url` is required
 
 Publishing documents **requires** `site.url` to be configured — it's the origin
-that disambiguates rkeys. `run()` (`publish.rs`) errors early if documents are
+that disambiguates rkeys. `publish()` (`atproto.rs`) errors early if documents are
 enabled and `site.url` is unset.
 
 ### Deterministic and reconstructible

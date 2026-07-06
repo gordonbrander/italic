@@ -1,15 +1,15 @@
-//! The `pubstatus` layer: read back the ATProto records `italic publish` wrote
-//! and confirm they still exist on the PDS and match local state.
+//! The `atproto status` layer: read back the ATProto records `italic atproto
+//! publish` wrote and confirm they still exist on the PDS and match local state.
 //!
-//! Unlike [`crate::publish`], which is networked *and* mutating, `pubstatus` is
+//! Unlike [`crate::atproto::publish`], which is networked *and* mutating, `status` is
 //! networked but read-only — it never writes a record or touches the state file.
-//! It loads the sidecar state ([`state`](crate::publish::state)), authenticates
+//! It loads the sidecar state ([`state`](crate::atproto::state)), authenticates
 //! the same way publish does, then for each recorded record fetches its CID from
 //! the PDS and classifies it:
 //!
 //! - **ok** — present, and its CID matches the one in state.
 //! - **CHANGED** — present, but the live CID differs (edited or re-written since
-//!   `italic publish` last ran).
+//!   `italic atproto publish` last ran).
 //! - **MISSING** — absent from the PDS.
 //!
 //! State files written before the publication CID was recorded fall back to an
@@ -17,11 +17,11 @@
 //! Any MISSING or CHANGED record makes the command exit nonzero so CI can gate
 //! on it.
 
+use crate::atproto::client::{Client, Credentials};
+use crate::atproto::config::Atproto;
+use crate::atproto::document;
+use crate::atproto::state::{RecordRef, STATE_PATH, State};
 use crate::config::Config;
-use crate::publish::atproto::{Client, Credentials};
-use crate::publish::config::Publish;
-use crate::publish::document;
-use crate::publish::state::{RecordRef, STATE_PATH, State};
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::Path;
 
@@ -65,30 +65,30 @@ fn classify(expected_cid: &str, fetched: Option<&str>) -> Status {
 }
 
 /// Verify the records recorded in state against the PDS. Tokio is confined to
-/// this function (mirroring [`crate::publish::run`]): it builds a current-thread
+/// this function (mirroring [`crate::atproto::run`]): it builds a current-thread
 /// runtime and drives the async check to completion.
 pub fn run(config: &Config) -> Result<()> {
-    let publish = config
-        .publish
+    let atproto = config
+        .atproto
         .as_ref()
-        .ok_or_else(|| anyhow!("no `publish:` block in config.yaml — nothing to verify"))?;
+        .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to verify"))?;
 
     let state = State::load(Path::new(STATE_PATH))?;
     if state.records.is_empty() && state.publication_uri.is_none() {
-        bail!("no publish state ({STATE_PATH}) — run `italic publish` first");
+        bail!("no publish state ({STATE_PATH}) — run `italic atproto publish` first");
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(check(publish, &state))
+    runtime.block_on(check(atproto, &state))
 }
 
 /// The authenticated read pass: log in, then fetch and classify every recorded
 /// record. Returns `Err` if anything is MISSING or CHANGED.
-async fn check(publish: &Publish, state: &State) -> Result<()> {
-    let creds = Credentials::load(publish)?;
+async fn check(atproto: &Atproto, state: &State) -> Result<()> {
+    let creds = Credentials::load(atproto)?;
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", client.handle(), client.did());
 
