@@ -124,7 +124,6 @@ fn dry_run(
             "create"
         };
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
-        warn_legacy_cover(doc);
         let cover = match cover::resolve(doc, site_image, static_roots) {
             Cover::Resolved(p, source) => format!(", cover: {} (from {source})", p.display()),
             Cover::External(u) => format!(", cover: skipped — external URL {u}"),
@@ -261,7 +260,6 @@ impl<'a> CoverUploader<'a> {
     /// read failure is genuinely exceptional. External URLs and missing files
     /// warn (once per distinct value) and skip.
     async fn upload(&mut self, client: &Client, doc: &Doc) -> Result<Option<BlobRef>> {
-        warn_legacy_cover(doc);
         let path = match cover::resolve(doc, self.site_image, self.static_roots) {
             Cover::Resolved(p, _) => p,
             Cover::External(url) => {
@@ -299,19 +297,6 @@ impl<'a> CoverUploader<'a> {
         if self.warned.insert(key.to_string()) {
             eprintln!("{message}");
         }
-    }
-}
-
-/// Warn when a doc still carries the removed `cover:` frontmatter key.
-/// Frontmatter is schemaless, so this warning is the only signal that the key
-/// no longer does anything.
-fn warn_legacy_cover(doc: &Doc) {
-    if let Some(value) = cover::legacy_cover(doc) {
-        eprintln!(
-            "warning: {}: `cover:` is no longer used ({value}) — set `image:` instead \
-             (a site-root-relative URL path, shared with og:image)",
-            doc.id_path.display()
-        );
     }
 }
 

@@ -56,13 +56,6 @@ pub fn resolve(doc: &Doc, site_image: Option<&str>, roots: &[PathBuf]) -> Cover 
     }
 }
 
-/// The removed `cover:` frontmatter key, if a doc still carries it. Frontmatter
-/// is schemaless (unknown keys just sit in `data`), so the only guardrail
-/// against silently losing covers is warning on it at publish time.
-pub fn legacy_cover(doc: &Doc) -> Option<&str> {
-    data_field(doc, "cover")
-}
-
 /// A trimmed, non-empty string field of the doc's raw frontmatter (mirrors the
 /// metadata filters' `data_field` semantics).
 fn data_field<'a>(doc: &'a Doc, key: &str) -> Option<&'a str> {
@@ -193,22 +186,5 @@ mod tests {
         let doc = doc_with(&[("image", "")]);
         assert_eq!(resolve(&doc, Some("   "), &[]), Cover::None);
         assert_eq!(resolve(&doc, None, &[]), Cover::None);
-    }
-
-    #[test]
-    fn legacy_cover_is_surfaced_not_resolved() {
-        let dir = tempdir("cover_legacy");
-        touch(&dir.join("static/img/i.png"));
-        let doc = doc_with(&[("cover", "assets/c.png"), ("image", "/img/i.png")]);
-        let roots = vec![dir.join("static")];
-        // `cover:` no longer participates in resolution…
-        assert_eq!(
-            resolve(&doc, None, &roots),
-            Cover::Resolved(dir.join("static/img/i.png"), "image: frontmatter")
-        );
-        // …but is surfaced so publish can warn about it.
-        assert_eq!(legacy_cover(&doc), Some("assets/c.png"));
-        assert_eq!(legacy_cover(&doc_with(&[])), None);
-        cleanup(&dir);
     }
 }
