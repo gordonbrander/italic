@@ -2,23 +2,22 @@
 //! the user's ATProto PDS as `site.standard.*` records.
 //!
 //! Unlike the build pipeline — pure, offline, deterministic — publishing is
-//! networked, stateful, and authenticated. It reuses the frozen index from
+//! networked and authenticated. It reuses the frozen index from
 //! [`crate::build::build_index`] (no HTML is rendered), then talks to the PDS
-//! over `com.atproto.*` XRPC. A sidecar state file
-//! ([`state`]) remembers which records map to which docs so re-running *updates*
-//! records instead of duplicating them.
+//! over `com.atproto.*` XRPC. There is no local state: record keys are
+//! deterministic hashes of the canonical URL / site origin, so re-running
+//! *updates* records in place via `putRecord`, and the PDS itself is the source
+//! of truth for what is published (see [`status`]).
 
 pub mod client;
 pub mod config;
 pub mod cover;
 pub mod document;
-pub mod state;
 pub mod status;
 
 use crate::atproto::client::{Client, Credentials};
 use crate::atproto::config::Atproto;
 use crate::atproto::cover::Cover;
-use crate::atproto::state::{RecordRef, State};
 use crate::config::Config;
 use crate::doc::Doc;
 use crate::doc_index::DocIndex;
@@ -80,26 +79,15 @@ pub fn publish(
         ));
     }
 
-    let state_path = Path::new(state::STATE_PATH);
-    let mut state = State::load(state_path)?;
-
     if options.dry_run {
-        return dry_run(config, atproto, &docs, &state, site_image, &static_roots);
+        return dry_run(config, atproto, &docs, site_image, &static_roots);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(sync(
-        config,
-        atproto,
-        &docs,
-        &mut state,
-        state_path,
-        site_image,
-        &static_roots,
-    ))
+    runtime.block_on(sync(config, atproto, &docs, site_image, &static_roots))
 }
 
 /// Print what a real run would do, without any network calls (cover resolution
@@ -108,26 +96,29 @@ fn dry_run(
     config: &Config,
     atproto: &Atproto,
     docs: &[&Doc],
-    state: &State,
     site_image: Option<&str>,
     static_roots: &[PathBuf],
 ) -> Result<()> {
+    // `publish` guarantees `site_url` is set before calling us.
+    let site_url = config
+        .site_url
+        .as_deref()
+        .expect("site.url required when publishing documents");
     println!("atproto publish --dry-run (no network calls)");
-    println!(
-        "  publication: {}",
-        state
-            .publication_uri
-            .as_deref()
-            .unwrap_or("(not yet bootstrapped — would be created)")
-    );
+    // Every write is a put at a deterministic rkey — create-or-update; which one
+    // it would be is unknowable offline, and doesn't matter.
+    match client::env_did()? {
+        Some(did) => println!(
+            "  put publication {}",
+            document::publication_uri(&did, site_url)
+        ),
+        None => println!(
+            "  put publication rkey={} (set ITALIC_ATPROTO_DID to preview the AT-URI)",
+            document::publication_rkey(site_url)
+        ),
+    }
     println!("  documents ({}):", atproto.collection);
     for doc in docs {
-        let existing = state.doc(&doc.id_path).and_then(|r| r.document.as_ref());
-        let verb = if existing.is_some() {
-            "update"
-        } else {
-            "create"
-        };
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
         let cover = match cover::resolve(doc, site_image, static_roots) {
             Cover::Resolved(p, source) => format!(", cover: {} (from {source})", p.display()),
@@ -138,7 +129,7 @@ fn dry_run(
             Cover::None => String::new(),
         };
         println!(
-            "    {verb} {} (rkey={}){cover}",
+            "    put {} (rkey={}){cover}",
             doc.id_path.display(),
             document::document_rkey(&url)
         );
@@ -149,14 +140,12 @@ fn dry_run(
 /// The authenticated sync. Bootstraps the publication, then for each doc uploads
 /// the cover blob (the page's `image:`, else `site.image`, resolved through the
 /// static roots and cached per file so a shared default uploads once) and puts
-/// the document record at its stable rkey. State is saved after every write so
-/// a crash never loses progress.
+/// the document record at its stable rkey. Every write is idempotent — rkeys are
+/// deterministic — so an interrupted run is simply re-run.
 async fn sync(
     config: &Config,
     atproto: &Atproto,
     docs: &[&Doc],
-    state: &mut State,
-    state_path: &Path,
     site_image: Option<&str>,
     static_roots: &[PathBuf],
 ) -> Result<()> {
@@ -164,26 +153,13 @@ async fn sync(
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", client.handle(), client.did());
 
-    // Warn (don't fail) if the state was written against a different account.
-    if let Some(prev) = &state.did
-        && prev != client.did()
-    {
-        eprintln!(
-            "warning: state file belongs to {prev} but you are authenticated as {} — \
-             records may not match",
-            client.did()
-        );
-    }
-    state.did = Some(client.did().to_string());
-
     // Publication bootstrap — documents reference it via `site`.
     // `publish` guarantees `site_url` is set.
     let site_url = config
         .site_url
         .as_deref()
         .expect("site.url required when publishing documents");
-    let publication_uri =
-        bootstrap_publication(&client, atproto, site_url, state, state_path).await?;
+    let publication_uri = bootstrap_publication(&client, atproto, site_url).await?;
 
     let mut put_docs = 0usize;
     let mut covers = CoverUploader::new(site_image, static_roots);
@@ -196,15 +172,9 @@ async fn sync(
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
         let rkey = document::document_rkey(&url);
         let record = document::document(doc, &publication_uri, &config.base_path, cover);
-        let written = client
+        client
             .put_record(document::DOCUMENT_NSID, &rkey, &record)
             .await?;
-        state.doc_mut(&doc.id_path).document = Some(RecordRef {
-            rkey,
-            cid: written.cid,
-            uri: written.uri,
-        });
-        state.save(state_path)?;
         put_docs += 1;
         throttle().await;
     }
@@ -214,15 +184,9 @@ async fn sync(
 }
 
 /// Create or update the single `site.standard.publication` record and return its
-/// AT-URI (recorded in state). The rkey is derived from the site origin so each
-/// site gets its own publication record on a shared PDS.
-async fn bootstrap_publication(
-    client: &Client,
-    atproto: &Atproto,
-    site_url: &str,
-    state: &mut State,
-    state_path: &Path,
-) -> Result<String> {
+/// AT-URI. The rkey is derived from the site origin so each site gets its own
+/// publication record on a shared PDS.
+async fn bootstrap_publication(client: &Client, atproto: &Atproto, site_url: &str) -> Result<String> {
     let icon = match &atproto.publication.icon {
         Some(path) => Some(upload_image(client, path).await?),
         None => None,
@@ -233,9 +197,6 @@ async fn bootstrap_publication(
         .put_record(document::PUBLICATION_NSID, &rkey, &record)
         .await
         .context("publishing site.standard.publication")?;
-    state.publication_uri = Some(written.uri.clone());
-    state.publication_cid = Some(written.cid.clone());
-    state.save(state_path)?;
     println!("publication: {}", written.uri);
     Ok(written.uri)
 }

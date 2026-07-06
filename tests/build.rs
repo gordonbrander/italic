@@ -326,9 +326,8 @@ fn metadata() {
 }
 
 /// The standard.site verification artifacts are derived entirely from the
-/// `ITALIC_ATPROTO_DID` env var + `site.url` config — this fixture has no
-/// publish state file, yet the per-post `<link>` proof and the `.well-known`
-/// file are both emitted.
+/// `ITALIC_ATPROTO_DID` env var + `site.url` config — the per-post `<link>`
+/// proof and the `.well-known` file are both emitted offline.
 #[test]
 fn standard_site() {
     run_build_env(

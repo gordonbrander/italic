@@ -3,7 +3,7 @@
 //! record's AT-URI. The URI is fully derivable from the inputs at hand — the
 //! account DID (`ITALIC_ATPROTO_DID`) + an rkey hashed from the site origin (see
 //! [`crate::atproto::document::publication_uri`]) — so the proof is pure,
-//! offline, and present in every build; no publish state is read. Structurally
+//! offline, and present in every build. Structurally
 //! this mirrors the built-in sitemap/feed generators: a generated output with a
 //! non-`.html` path that bypasses templating. Gated on `atproto.verification`
 //! plus the DID/`site.url` inputs the derivation needs.

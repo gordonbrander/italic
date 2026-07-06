@@ -17,14 +17,15 @@ publishing to the ATmosphere is additive.
 
 ## How it differs from `build`
 
-Everything else italic does is pure, offline, and stateless: `content/` in,
-`public/` out, no memory between runs. Publishing is the one exception — it is
-**networked, stateful, and authenticated**:
+Everything italic does is pure, offline, and stateless: `content/` in,
+`public/` out, no memory between runs. Publishing keeps the stateless part but
+is **networked and authenticated**:
 
 - It talks to your PDS over HTTP.
-- It remembers what it published last time in a small **state file** so
-  re-running *updates* records in place instead of creating duplicates.
 - It needs **credentials**.
+- Record keys are deterministic hashes of your canonical URLs, so re-running
+  *updates* records in place instead of creating duplicates — no local
+  bookkeeping needed. The PDS itself is the record of what's published.
 
 `italic atproto publish` reuses the normal build pipeline to get your fully-rendered
 documents, then syncs records — it does **not** write any HTML. Run `italic
@@ -101,24 +102,17 @@ export ITALIC_ATPROTO_DID=did:plc:abc123…
 export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-> **Add `.italic/` to your `.gitignore`.** It holds the publish state file
-> described below.
+## No local state
 
-## The state file
+Publishing keeps no local state. Record keys are pure functions of `site.url`
+(+ `base_path`) and each document's output path, so every run derives the same
+addresses and `putRecord` updates them in place; an interrupted run is simply
+re-run. To see what's actually published, ask the PDS —
+`italic atproto status` does exactly that (see
+[Verifying your records](verifying-atproto.md)).
 
-italic records what it published in `.italic/atproto.yaml`: the publication's
-AT-URI, your account DID, and a per-document map of `id_path → { document }`
-record keys and CIDs. It's plain, human-readable YAML — you can open it to inspect
-what was published, or hand-edit an entry to recover from a mistake.
-
-Documents use stable record keys derived from their canonical URL, so they
-update in place (`putRecord`) every run — and the keys are reconstructible from
-config + content even if the state file is lost. The state file mainly lets
-`atproto status` verify what's on the PDS against what was last published.
-
-Keep `.italic/atproto.yaml` out of public repos (it isn't secret, but it's
-noise). It is written incrementally, after each record, so an interrupted run
-never loses track of what it already wrote.
+> Earlier versions of italic recorded publishes in `.italic/atproto.yaml`. That
+> file is no longer read or written — you can delete it.
 
 ## Publishing full posts
 
@@ -165,7 +159,7 @@ DID (a public identifier), never the app password — set just
 `ITALIC_ATPROTO_DID` in your CI/deploy environment.
 
 With `ITALIC_ATPROTO_DID` and `site.url` set, every build — including CI builds
-that have no publish state file — emits:
+— emits:
 
 1. **Publication proof** — a static file at
    `/.well-known/site.standard.publication` containing your publication's AT-URI.
@@ -186,12 +180,12 @@ different repos, because both come from the one `ITALIC_ATPROTO_DID`.
 ## Previewing a run
 
 ```sh
-italic atproto publish --dry-run   # build records, diff against state, no network
+italic atproto publish --dry-run   # build records, show what would be put, no network
 ```
 
-`--dry-run` is the safe preview — it renders every record and reports what it
-would *create* vs. *update* without touching the network. Reach for it whenever
-you change config or templates.
+`--dry-run` is the safe preview — it renders every record and lists each `put`
+(create-or-update at its stable record key) without touching the network. Reach
+for it whenever you change config or templates.
 
 Drafts are never published: `atproto publish` builds with drafts excluded, so a
 `draft: true` post stays out of the PDS just as it stays out of `italic build`.

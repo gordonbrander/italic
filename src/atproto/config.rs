@@ -25,8 +25,8 @@ pub struct Atproto {
     pub collection: String,
     /// Emit the static verification artifacts during `build` (the
     /// `.well-known/site.standard.publication` file and the per-doc AT-URI
-    /// binding). On by default; harmless before the first publish (nothing is
-    /// emitted until the state file records a publication URI).
+    /// binding). On by default; harmless before the first publish (the
+    /// derived AT-URIs simply point at records that don't exist yet).
     pub verification: bool,
     /// `site.standard.publication` metadata (the site/blog record).
     pub publication: Publication,

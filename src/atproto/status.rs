@@ -1,188 +1,241 @@
-//! The `atproto status` layer: read back the ATProto records `italic atproto
-//! publish` wrote and confirm they still exist on the PDS and match local state.
+//! The `atproto status` layer: compare what *should* be published (derived from
+//! the built [`DocIndex`], exactly as `italic atproto publish` derives it)
+//! against what the PDS actually holds, read back via
+//! `com.atproto.repo.listRecords`. The PDS is the source of truth — there is no
+//! local state file.
 //!
-//! Unlike [`crate::atproto::publish`], which is networked *and* mutating, `status` is
-//! networked but read-only — it never writes a record or touches the state file.
-//! It loads the sidecar state ([`state`](crate::atproto::state)), authenticates
-//! the same way publish does, then for each recorded record fetches its CID from
-//! the PDS and classifies it:
+//! Unlike [`crate::atproto::publish`], which is networked *and* mutating,
+//! `status` is networked but read-only. Each expected record (the publication
+//! plus one document per doc in the configured collection) is classified:
 //!
-//! - **ok** — present, and its CID matches the one in state.
-//! - **CHANGED** — present, but the live CID differs (edited or re-written since
-//!   `italic atproto publish` last ran).
-//! - **MISSING** — absent from the PDS.
+//! - **ok** — present on the PDS.
+//! - **MISSING** — absent from the PDS (`italic atproto publish` fixes this).
+//! - **ORPHANED** — a document record on the PDS that references this site's
+//!   publication but has no matching local doc (deleted or renamed since it was
+//!   published).
 //!
-//! State files written before the publication CID was recorded fall back to an
-//! existence-only check for the publication record (no expected hash to compare).
-//! Any MISSING or CHANGED record makes the command exit nonzero so CI can gate
-//! on it.
+//! Checks are existence-only — rkeys are deterministic hashes of canonical
+//! URLs, so presence at the expected rkey is the signal. Content drift (a
+//! record edited by another client) is not detected. MISSING records make the
+//! command exit nonzero so CI can gate on it; orphans only warn, since the fix
+//! (deleteRecord) is manual.
 
 use crate::atproto::client::{Client, Credentials};
 use crate::atproto::config::Atproto;
 use crate::atproto::document;
-use crate::atproto::state::{RecordRef, STATE_PATH, State};
 use crate::config::Config;
+use crate::doc::Doc;
+use crate::doc_index::DocIndex;
 use anyhow::{Context, Result, anyhow, bail};
-use std::path::Path;
+use atrium_api::types::Unknown;
+use std::collections::BTreeMap;
 
-/// The outcome of checking one record against the PDS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Status {
-    /// Present, and its CID matches local state.
-    Ok,
-    /// Present, but its CID differs from state.
-    Changed,
-    /// Absent from the PDS.
-    Missing,
+/// A document record as listed from the PDS, reduced to what classification
+/// needs.
+struct RemoteDoc {
+    rkey: String,
+    uri: String,
+    /// The record's `site` field (publication AT-URI), used to attribute the
+    /// record to a site when several share one PDS.
+    site: Option<String>,
 }
 
-/// Running tally of record outcomes, for the summary line and exit code.
+/// The classified comparison of expected records against the PDS.
 #[derive(Default)]
-struct Tally {
-    ok: usize,
-    changed: usize,
-    missing: usize,
+struct Report {
+    /// id_paths whose document record is present, in id_path order.
+    published: Vec<String>,
+    /// (id_path, rkey) pairs absent from the PDS, in id_path order.
+    missing: Vec<(String, String)>,
+    /// AT-URIs of this site's document records with no matching local doc.
+    orphaned: Vec<String>,
 }
 
-impl Tally {
-    fn add(&mut self, status: Status) {
-        match status {
-            Status::Ok => self.ok += 1,
-            Status::Changed => self.changed += 1,
-            Status::Missing => self.missing += 1,
+/// Compare expected records (id_path → rkey) against the listed remote records.
+/// Pure — the network lives in [`check`]. Orphans are limited to records whose
+/// `site` field matches `site_uri`; records belonging to other sites on a
+/// shared PDS are ignored.
+fn classify(expected: &BTreeMap<String, String>, remote: &[RemoteDoc], site_uri: &str) -> Report {
+    let mut report = Report::default();
+    for (id_path, rkey) in expected {
+        if remote.iter().any(|r| &r.rkey == rkey) {
+            report.published.push(id_path.clone());
+        } else {
+            report.missing.push((id_path.clone(), rkey.clone()));
         }
     }
-}
-
-/// Classify a record from its locally-recorded CID and the CID the PDS returned
-/// (`None` if the record was not found). Pure — the network lives in [`check`].
-fn classify(expected_cid: &str, fetched: Option<&str>) -> Status {
-    match fetched {
-        None => Status::Missing,
-        Some(cid) if cid == expected_cid => Status::Ok,
-        Some(_) => Status::Changed,
+    for r in remote {
+        if !expected.values().any(|rkey| rkey == &r.rkey) && r.site.as_deref() == Some(site_uri) {
+            report.orphaned.push(r.uri.clone());
+        }
     }
+    report
 }
 
-/// Verify the records recorded in state against the PDS. Tokio is confined to
-/// this function (mirroring [`crate::atproto::run`]): it builds a current-thread
+/// Extract the `site` string field from a listed record's value.
+fn record_site(value: &Unknown) -> Option<String> {
+    let v = serde_json::to_value(value).ok()?;
+    Some(v.get("site")?.as_str()?.to_string())
+}
+
+/// Verify the site's records against the PDS. Tokio is confined to this
+/// function (mirroring [`crate::atproto::publish`]): it builds a current-thread
 /// runtime and drives the async check to completion.
-pub fn run(config: &Config) -> Result<()> {
+pub fn run(config: &Config, index: &DocIndex) -> Result<()> {
     let atproto = config
         .atproto
         .as_ref()
         .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to verify"))?;
 
-    let state = State::load(Path::new(STATE_PATH))?;
-    if state.records.is_empty() && state.publication_uri.is_none() {
-        bail!("no publish state ({STATE_PATH}) — run `italic atproto publish` first");
-    }
+    // Same requirement as `publish`: rkeys are derived from absolute canonical
+    // URLs, so the origin is needed to reconstruct them.
+    let site_url = config.site_url.as_deref().ok_or_else(|| {
+        anyhow!(
+            "site.url is required to verify published documents — it disambiguates \
+             record keys so multiple sites can share one PDS"
+        )
+    })?;
+
+    // Derive the expected record set the same way `publish` does, so the two
+    // can never drift.
+    let mut docs: Vec<&Doc> = index.get_collection(&atproto.collection).collect();
+    docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
+    let expected: BTreeMap<String, String> = docs
+        .iter()
+        .map(|doc| {
+            let url = document::canonical_url(doc, Some(site_url), &config.base_path);
+            (
+                doc.id_path.to_string_lossy().replace('\\', "/"),
+                document::document_rkey(&url),
+            )
+        })
+        .collect();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(check(atproto, &state))
+    runtime.block_on(check(atproto, site_url, &expected))
 }
 
-/// The authenticated read pass: log in, then fetch and classify every recorded
-/// record. Returns `Err` if anything is MISSING or CHANGED.
-async fn check(atproto: &Atproto, state: &State) -> Result<()> {
+/// The authenticated read pass: log in, list this repo's records, and classify
+/// them against the expected set. Returns `Err` if anything is MISSING.
+async fn check(atproto: &Atproto, site_url: &str, expected: &BTreeMap<String, String>) -> Result<()> {
     let creds = Credentials::load(atproto)?;
     let client = Client::login(&creds).await?;
     println!("authenticated as {} ({})", client.handle(), client.did());
 
-    // Warn (don't fail) if the state was written against a different account —
-    // same guard `publish` uses, since the records would belong to another repo.
-    if let Some(prev) = &state.did
-        && prev != client.did()
-    {
-        eprintln!(
-            "warning: state file belongs to {prev} but you are authenticated as {} — \
-             records may not match",
-            client.did()
-        );
+    let site_uri = document::publication_uri(client.did(), site_url);
+    let pub_rkey = document::publication_rkey(site_url);
+
+    // Publication record. Other publication records on the repo belong to other
+    // sites — ignore them.
+    let publications = client.list_records(document::PUBLICATION_NSID).await?;
+    let publication_ok = publications
+        .iter()
+        .any(|r| super::rkey_from_uri(&r.uri) == pub_rkey);
+    if publication_ok {
+        println!("  ok       publication {site_uri}");
+    } else {
+        println!("  MISSING  publication {site_uri}");
     }
 
-    let mut tally = Tally::default();
+    // Document records.
+    let remote: Vec<RemoteDoc> = client
+        .list_records(document::DOCUMENT_NSID)
+        .await?
+        .iter()
+        .map(|r| RemoteDoc {
+            rkey: super::rkey_from_uri(&r.uri),
+            uri: r.uri.clone(),
+            site: record_site(&r.value),
+        })
+        .collect();
 
-    // Publication record. With a recorded CID we detect drift like any other
-    // record; older state files (pre-`publication_cid`) only get an existence
-    // check, since there's no expected hash to compare against.
-    if let Some(uri) = state.publication_uri.as_deref() {
-        // The publication rkey is origin-derived; recover it from the recorded URI.
-        let rkey = super::rkey_from_uri(uri);
-        let fetched = client
-            .get_record_cid(document::PUBLICATION_NSID, &rkey)
-            .await?;
-        let status = match &state.publication_cid {
-            Some(cid) => classify(cid, fetched.as_deref()),
-            None if fetched.is_some() => Status::Ok,
-            None => Status::Missing,
-        };
-        match status {
-            Status::Ok => println!("  ok      publication"),
-            Status::Changed => println!("  CHANGED publication"),
-            Status::Missing => println!("  MISSING publication"),
-        }
-        tally.add(status);
+    let report = classify(expected, &remote, &site_uri);
+
+    for id_path in &report.published {
+        println!("  ok       {id_path}");
     }
-
-    // Document records, per doc, in deterministic id_path order (state.records
-    // is a BTreeMap).
-    for (id_path, records) in &state.records {
-        if let Some(rec) = &records.document {
-            let fetched = client
-                .get_record_cid(document::DOCUMENT_NSID, &rec.rkey)
-                .await?;
-            tally.add(report(id_path, "document", rec, fetched.as_deref()));
-        }
+    for (id_path, rkey) in &report.missing {
+        println!("  MISSING  {id_path} (rkey={rkey})");
+    }
+    for uri in &report.orphaned {
+        println!("  ORPHANED {uri} (no matching local doc — deleted or renamed?)");
     }
 
     println!(
-        "{} ok, {} missing, {} changed",
-        tally.ok, tally.missing, tally.changed
+        "{} published, {} missing, {} orphaned",
+        report.published.len(),
+        report.missing.len(),
+        report.orphaned.len()
     );
 
-    if tally.missing > 0 || tally.changed > 0 {
-        bail!(
-            "verification failed: {} missing, {} changed",
-            tally.missing,
-            tally.changed
+    if !report.orphaned.is_empty() {
+        eprintln!(
+            "note: orphaned records can be removed with com.atproto.repo.deleteRecord \
+             (see docs/guides/verifying-atproto.md)"
         );
     }
-    Ok(())
-}
 
-/// Classify one record, print its status line, and return the status to tally.
-fn report(id_path: &str, kind: &str, rec: &RecordRef, fetched: Option<&str>) -> Status {
-    let status = classify(&rec.cid, fetched);
-    match status {
-        Status::Ok => println!("  ok      {kind:8} {id_path}"),
-        Status::Changed => println!("  CHANGED {kind:8} {id_path} (rkey={})", rec.rkey),
-        Status::Missing => println!("  MISSING {kind:8} {id_path} (rkey={})", rec.rkey),
+    let missing = report.missing.len() + usize::from(!publication_ok);
+    if missing > 0 {
+        bail!("{missing} record(s) missing — run `italic atproto publish`");
     }
-    status
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn classify_distinguishes_ok_changed_missing() {
-        assert_eq!(classify("bafy", None), Status::Missing);
-        assert_eq!(classify("bafy", Some("bafy")), Status::Ok);
-        assert_eq!(classify("bafy", Some("bafz")), Status::Changed);
+    fn remote(rkey: &str, site: Option<&str>) -> RemoteDoc {
+        RemoteDoc {
+            rkey: rkey.into(),
+            uri: format!("at://did:plc:abc/site.standard.document/{rkey}"),
+            site: site.map(String::from),
+        }
     }
 
     #[test]
-    fn tally_counts_each_status() {
-        let mut t = Tally::default();
-        t.add(Status::Ok);
-        t.add(Status::Ok);
-        t.add(Status::Changed);
-        t.add(Status::Missing);
-        assert_eq!((t.ok, t.changed, t.missing), (2, 1, 1));
+    fn classify_partitions_published_missing_orphaned() {
+        let ours = "at://did:plc:abc/site.standard.publication/self";
+        let expected: BTreeMap<String, String> = [
+            ("a.md".to_string(), "r1".to_string()),
+            ("b.md".to_string(), "r2".to_string()),
+        ]
+        .into();
+        let listed = [
+            remote("r1", Some(ours)),   // expected and present
+            remote("r3", Some(ours)),   // ours, but no local doc → orphaned
+            remote("r4", Some("at://did:plc:other/site.standard.publication/x")), // another site
+            remote("r5", None),         // unattributable — ignored
+        ];
+        let report = classify(&expected, &listed, ours);
+        assert_eq!(report.published, vec!["a.md"]);
+        assert_eq!(report.missing, vec![("b.md".to_string(), "r2".to_string())]);
+        assert_eq!(
+            report.orphaned,
+            vec!["at://did:plc:abc/site.standard.document/r3"]
+        );
+    }
+
+    #[test]
+    fn record_site_extracts_the_site_field() {
+        let value: Unknown = serde_json::from_str(
+            r#"{"$type":"site.standard.document","site":"at://did:plc:abc/site.standard.publication/x"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            record_site(&value).as_deref(),
+            Some("at://did:plc:abc/site.standard.publication/x")
+        );
+
+        let absent: Unknown = serde_json::from_str(r#"{"$type":"site.standard.document"}"#).unwrap();
+        assert_eq!(record_site(&absent), None);
+
+        let non_string: Unknown =
+            serde_json::from_str(r#"{"$type":"site.standard.document","site":42}"#).unwrap();
+        assert_eq!(record_site(&non_string), None);
     }
 }

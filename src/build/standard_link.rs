@@ -4,8 +4,8 @@
 //! `at://` + the account DID (`ITALIC_ATPROTO_DID`) + the collection NSID + an
 //! rkey hashed from the doc's canonical URL (see
 //! [`crate::atproto::document::document_uri`]) — so this pass computes it
-//! directly; no publish state, no network, and the proofs are present in every
-//! build (including CI, where the state file typically doesn't exist).
+//! directly; no network, and the proofs are present in every build
+//! (including CI).
 //!
 //! The pass injects the URI into each published doc's `data` as `atproto_uri`;
 //! the tag itself is emitted by the built-in `standard_link` metadata filter

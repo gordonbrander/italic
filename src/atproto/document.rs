@@ -104,8 +104,8 @@ fn rkey_hash(input: &str) -> String {
 
 /// Record key for a doc's `site.standard.document`, derived from its absolute
 /// canonical URL (origin + path) so two sites published to one PDS never collide.
-/// Pass the output of [`canonical_url`]. Deterministic and reconstructible from
-/// config + the doc's output path even if the state file is lost.
+/// Pass the output of [`canonical_url`]. Deterministic — reconstructible from
+/// config + the doc's output path, so no local bookkeeping is needed.
 pub fn document_rkey(canonical_url: &str) -> String {
     rkey_hash(canonical_url)
 }
@@ -117,8 +117,8 @@ pub fn publication_rkey(site_url: &str) -> String {
 }
 
 /// AT-URI of a doc's `site.standard.document` record. Fully derivable from the
-/// account DID (`ITALIC_ATPROTO_DID`), `site.url`, and the doc's output path —
-/// no publish state needed. The build-time verification `<link>` and `italic
+/// account DID (`ITALIC_ATPROTO_DID`), `site.url`, and the doc's output path.
+/// The build-time verification `<link>` and `italic
 /// atproto` both construct record addresses through here, so they can never
 /// drift.
 pub fn document_uri(did: &str, canonical_url: &str) -> String {

@@ -252,7 +252,7 @@ Top-level keys:
 `publication` keys: `name` and `url` (both required to publish), `description`,
 and `icon` (a path uploaded as a blob).
 
-The env-var resolution and the state file are covered in the
+The env-var resolution is covered in the
 [Publishing guide](../guides/publishing-atproto.md).
 
 ## Theme config merging

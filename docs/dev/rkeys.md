@@ -50,9 +50,10 @@ enabled and `site.url` is unset.
 ### Deterministic and reconstructible
 
 Because the rkey is a pure function of config (`site.url`, `base_path`) plus the
-doc's output path, it's reconstructible even if the state file
-(`.italic/atproto.yaml`) is lost. Publishing uses `putRecord` (not
-`createRecord`), so re-publishing a document updates it in place.
+doc's output path, there is no local state — rkeys are recomputed from config +
+content every run. Publishing uses `putRecord` (not `createRecord`), so
+re-publishing a document updates it in place, and `atproto status` re-derives
+the same rkeys to check them against the PDS.
 
 Note the rkey now tracks the **published URL** (via `output_path`/permalink), not
 the source `id_path`. Changing a doc's `permalink:` frontmatter changes its rkey.

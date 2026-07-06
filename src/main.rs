@@ -53,7 +53,7 @@ enum AtprotoCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Check ATProto records on your PDS match local publish state
+    /// Check the site's expected ATProto records exist on your PDS
     Status,
     /// Resolve a handle (e.g. alice.bsky.social) to its DID, for ITALIC_ATPROTO_DID
     Did {

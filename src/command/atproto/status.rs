@@ -1,18 +1,18 @@
-//! The `atproto status` verb: load config + state, then read back the ATProto
-//! records `italic atproto publish` wrote and confirm they still match. The
-//! networked, read-only half lives in [`crate::atproto::status`]; this is the
-//! thin CLI seam.
+//! The `atproto status` verb: build the site index, then compare the expected
+//! records against what the PDS holds. The networked, read-only half lives in
+//! [`crate::atproto::status`]; this is the thin CLI seam.
 //!
-//! Unlike `atproto publish`, `atproto status` does **not** build the site — it
-//! only needs the `atproto:` config (for credentials/host) and the sidecar
-//! state file, so it still works while your content is mid-edit.
+//! Like `atproto publish`, `atproto status` builds the [`DocIndex`]
+//! (drafts excluded, no HTML written) — the current content is what defines
+//! which records *should* exist, and the PDS is the source of truth for which
+//! ones *do*. There is no local state file.
+//!
+//! [`DocIndex`]: crate::doc_index::DocIndex
 
 use crate::atproto::status;
-use crate::config::Config;
 use anyhow::Result;
-use std::path::Path;
 
 pub fn run() -> Result<()> {
-    let (config, _theme) = Config::load_with_theme(Path::new("config.yaml"))?;
-    status::run(&config)
+    let (config, _site_data, index) = crate::build::build_index(false)?;
+    status::run(&config, &index)
 }

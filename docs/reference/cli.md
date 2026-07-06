@@ -71,17 +71,18 @@ italic atproto publish             # sync document + publication records
 
 ## `italic atproto status`
 
-Read back the records `italic atproto publish` wrote and confirm they still exist on your
-PDS and match local state. Networked, authenticated, and **read-only** — it never
-writes a record or touches the state file. Unlike `atproto publish` it does **not** build
-the site, so it works even while your content is mid-edit. Requires
-an [`atproto:`](config.md#atproto) block, credentials, and a prior publish (it
-checks what's recorded in `.italic/atproto.yaml`).
+Compare the records your site *should* have against what your PDS actually
+holds (via `com.atproto.repo.listRecords`) — the PDS is the source of truth;
+there is no local state file. Networked, authenticated, and **read-only** — it
+never writes a record. Like `atproto publish` it builds the site index (drafts
+excluded, no HTML written) to derive the expected records, so it requires an
+[`atproto:`](config.md#atproto) block, `site.url`, and credentials.
 
-For each recorded record it reports `ok` (present, content hash matches),
-`CHANGED` (present, but the live CID differs — edited or re-written since publish),
-or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
-nonzero**, so it can gate a CI step.
+For each expected record it reports `ok` (present at its derived record key) or
+`MISSING` (absent — re-publish to fix), plus `ORPHANED` for records on the PDS
+that reference your publication but have no matching local doc (deleted or
+renamed sources). Checks are existence-only. If anything is MISSING the command
+**exits nonzero**, so it can gate a CI step; orphans only warn.
 
 ```sh
 italic atproto status   # check every published record

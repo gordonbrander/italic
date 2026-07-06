@@ -4,8 +4,7 @@ site:
 
 # The verification artifacts (`<link rel="site.standard.document">` per post,
 # `.well-known/site.standard.publication`) derive their AT-URIs from the
-# ITALIC_ATPROTO_DID env var (set by the test harness) + `site.url` — no
-# publish state file is involved in this fixture.
+# ITALIC_ATPROTO_DID env var (set by the test harness) + `site.url`.
 atproto:
   publication:
     name: Standard Site Demo
