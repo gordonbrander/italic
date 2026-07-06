@@ -48,7 +48,17 @@ fn collect_files(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 /// output themselves (e.g. when the result is intentionally nondeterministic);
 /// [`run_build`] wraps it with an exact `expected/` match.
 fn build_fixture(fixture: &str) -> PathBuf {
+    build_fixture_env(fixture, &[])
+}
+
+/// [`build_fixture`], with env vars set for the duration of the build. Env is
+/// process-global, so the vars are set only while the `CHDIR_LOCK` is held
+/// (which already serializes fixture builds) and removed before it is released.
+fn build_fixture_env(fixture: &str, envs: &[(&str, &str)]) -> PathBuf {
     let _guard = CHDIR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    for (key, val) in envs {
+        unsafe { std::env::set_var(key, val) };
+    }
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixture_dir = manifest_dir.join("tests").join("fixtures").join(fixture);
 
@@ -73,6 +83,9 @@ fn build_fixture(fixture: &str) -> PathBuf {
     std::env::set_current_dir(&temp_root).unwrap();
     let build_result = italic::build(false);
     std::env::set_current_dir(&prev_cwd).unwrap();
+    for (key, _) in envs {
+        unsafe { std::env::remove_var(key) };
+    }
 
     build_result.unwrap();
 
@@ -80,6 +93,10 @@ fn build_fixture(fixture: &str) -> PathBuf {
 }
 
 fn run_build(fixture: &str) {
+    run_build_env(fixture, &[])
+}
+
+fn run_build_env(fixture: &str, envs: &[(&str, &str)]) {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let expected_dir = manifest_dir
         .join("tests")
@@ -87,7 +104,7 @@ fn run_build(fixture: &str) {
         .join(fixture)
         .join("expected");
 
-    let temp_root = build_fixture(fixture);
+    let temp_root = build_fixture_env(fixture, envs);
 
     let cleanup_on_panic = AssertCtx {
         actual_root: temp_root.join("public"),
@@ -308,12 +325,16 @@ fn metadata() {
     run_build("24_metadata");
 }
 
-/// The standard.site verification artifacts are derived entirely from config
-/// (`publish.did` + `site.url`) — this fixture has no publish state file, yet
-/// the per-post `<link>` proof and the `.well-known` file are both emitted.
+/// The standard.site verification artifacts are derived entirely from the
+/// `ITALIC_ATPROTO_DID` env var + `site.url` config — this fixture has no
+/// publish state file, yet the per-post `<link>` proof and the `.well-known`
+/// file are both emitted.
 #[test]
 fn standard_site() {
-    run_build("25_standard_site");
+    run_build_env(
+        "25_standard_site",
+        &[("ITALIC_ATPROTO_DID", "did:plc:standardsitefixture")],
+    );
 }
 
 #[test]

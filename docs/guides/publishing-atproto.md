@@ -36,14 +36,22 @@ build` to update your site; run `italic publish` to update the PDS.
    *Settings → App passwords* and make one. (App-password auth is the v1 path;
    OAuth is a planned follow-up.)
 
-2. **Provide credentials** via environment variables — never `config.yaml`:
+2. **Look up your DID** — your account's permanent identifier (handles can
+   change; DIDs can't):
 
    ```sh
-   export ITALIC_ATPROTO_HANDLE=alice.example.com
+   italic atproto resolve-did alice.example.com
+   # did:plc:abc123…
+   ```
+
+3. **Provide credentials** via environment variables — never `config.yaml`:
+
+   ```sh
+   export ITALIC_ATPROTO_DID=did:plc:abc123…
    export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
    ```
 
-3. **Configure `publish:`** in `config.yaml`:
+4. **Configure `publish:`** in `config.yaml`:
 
    ```yaml
    collections:
@@ -57,7 +65,7 @@ build` to update your site; run `italic publish` to update the PDS.
        url: https://example.com   # where your HTML actually lives
    ```
 
-4. **Preview, then publish:**
+5. **Preview, then publish:**
 
    ```sh
    italic publish --dry-run   # show what would change — no network calls
@@ -69,21 +77,27 @@ document per post. Re-running updates the changed records in place.
 
 ## Credentials
 
+Your account is identified by its **DID**, not its handle — the atproto spec
+treats handles as mutable aliases that "need to be resolved to a DID in almost
+all situations", so italic uses the DID everywhere. Look yours up once with
+`italic atproto resolve-did <handle>`.
+
 Your **app password is a secret and never lives in `config.yaml`** (which you
-check into git) — it comes only from the environment. The non-secret host and
-handle come from the environment too, falling back to the `publish:` config:
+check into git) — it comes only from the environment. The DID comes only from
+the environment too (it also drives the build-time verification artifacts —
+see below); the non-secret host falls back to the `publish:` config:
 
 | Setting | Env var | Config fallback |
 |---------|---------|-----------------|
 | PDS host | `ITALIC_ATPROTO_PDS_HOST` | `publish.pds_host` (default `https://bsky.social`) |
-| Handle | `ITALIC_ATPROTO_HANDLE` | `publish.handle` |
+| DID | `ITALIC_ATPROTO_DID` | **never** |
 | App password | `ITALIC_ATPROTO_APP_PASSWORD` | **never** |
 
 Export the env vars in your shell before publishing (or pass them inline on the
 command, or set them in your CI secrets):
 
 ```sh
-export ITALIC_ATPROTO_HANDLE=alice.example.com
+export ITALIC_ATPROTO_DID=did:plc:abc123…
 export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
@@ -145,15 +159,13 @@ not once per document. `--dry-run` shows each document's resolved cover source.
 standard.site verifies that you own the domain two ways, and italic emits both
 during `build` (gated on `publish.verification`, on by default). Both AT-URIs
 are **derived** — record keys are hashes of your canonical URLs, so the only
-input that isn't already in your config is your account DID. Set it once:
+input that isn't already in your config is your account DID, read from the same
+`ITALIC_ATPROTO_DID` env var publishing uses. Note that `build` needs only the
+DID (a public identifier), never the app password — set just
+`ITALIC_ATPROTO_DID` in your CI/deploy environment.
 
-```yaml
-publish:
-  did: did:plc:…   # printed by `italic publish` on login
-```
-
-With `did` and `site.url` set, every build — including CI builds that have no
-publish state file — emits:
+With `ITALIC_ATPROTO_DID` and `site.url` set, every build — including CI builds
+that have no publish state file — emits:
 
 1. **Publication proof** — a static file at
    `/.well-known/site.standard.publication` containing your publication's AT-URI.
@@ -165,12 +177,11 @@ publish state file — emits:
    `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
    raw AT-URI from `page.data.atproto_uri`.
 
-Because `italic publish` derives record addresses the same way, build and
-deploy order doesn't matter: HTML deployed before a publish already carries the
-right URIs, and verification passes the moment the records exist. As a
-safeguard, `publish` errors if the account you authenticate as doesn't match
-`publish.did` — otherwise the deployed proofs would point at a different repo
-than the records land in.
+Because `italic publish` derives record addresses the same way — and
+authenticates *as* that same DID — build and deploy order doesn't matter: HTML
+deployed before a publish already carries the right URIs, and verification
+passes the moment the records exist. The proofs and the records can't point at
+different repos, because both come from the one `ITALIC_ATPROTO_DID`.
 
 ## Previewing a run
 
@@ -198,8 +209,6 @@ for details):
 ```yaml
 publish:
   pds_host: https://bsky.social   # optional
-  handle: alice.example.com       # or via ITALIC_ATPROTO_HANDLE
-  did: did:plc:abc123             # enables build-time verification artifacts
   collection: posts               # docs to publish; defaults to `all`
   verification: true              # emit the .well-known + <link> proofs
   publication:
@@ -208,6 +217,9 @@ publish:
     description: A digital garden.
     icon: static/icon.png
 ```
+
+Your identity (`ITALIC_ATPROTO_DID`) and app password
+(`ITALIC_ATPROTO_APP_PASSWORD`) live in the environment, never in config.
 
 ## See also
 

@@ -326,7 +326,7 @@ a given field is absent.
 | `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
 | `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |
 | `canonical_link` | `page` | `<link rel="canonical">`. |
-| `standard_link` | `page` | `<link rel="site.standard.document">` from `page.data.atproto_uri` — the standard.site per-page proof; empty unless [`publish.did`](../guides/publishing-atproto.md#verification-artifacts) is configured. |
+| `standard_link` | `page` | `<link rel="site.standard.document">` from `page.data.atproto_uri` — the standard.site per-page proof; empty unless [`ITALIC_ATPROTO_DID`](../guides/publishing-atproto.md#verification-artifacts) is set. |
 | `open_graph` | `page` | `og:*` (and `article:*` when `type="article"`, the default). |
 | `twitter_card` | `page` | `twitter:*` (`summary_large_image` when an image exists). |
 | `json_ld` | `page` | `<script type="application/ld+json">` (`BlogPosting`, or `WebSite` for `type="website"`). |

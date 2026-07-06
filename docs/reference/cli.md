@@ -59,9 +59,10 @@ documents. Requires a [`publish:`](config.md#publish) block and credentials
 |------|---------|---------|
 | `--dry-run` | off | Build records and report what would change, making no network calls. |
 
-Drafts are never published (the build runs with drafts excluded). The app
-password comes from the environment (`ITALIC_ATPROTO_APP_PASSWORD`) — never
-`config.yaml`.
+Drafts are never published (the build runs with drafts excluded). Your account
+DID and app password come from the environment (`ITALIC_ATPROTO_DID`,
+`ITALIC_ATPROTO_APP_PASSWORD`) — never `config.yaml`. Look your DID up with
+[`italic atproto resolve-did`](#italic-atproto-resolve-did-handle).
 
 ```sh
 italic publish --dry-run   # preview — safe, no network
@@ -88,6 +89,23 @@ italic pubstatus   # check every published record
 
 See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,
 including manual verification with `curl`.
+
+## `italic atproto resolve-did <handle>`
+
+Resolve an ATProto handle (e.g. `alice.bsky.social`) to its DID — the permanent
+account identifier that `ITALIC_ATPROTO_DID` expects. Networked but
+**unauthenticated**: it calls the public `com.atproto.identity.resolveHandle`
+endpoint; no config or credentials needed.
+
+The bare DID is printed to stdout (so it's scriptable); an `export` hint goes
+to stderr.
+
+```sh
+italic atproto resolve-did alice.bsky.social
+# did:plc:abc123…
+
+export ITALIC_ATPROTO_DID=$(italic atproto resolve-did alice.bsky.social)
+```
 
 ## `italic new <path>`
 

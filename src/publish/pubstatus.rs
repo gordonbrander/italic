@@ -90,7 +90,7 @@ pub fn run(config: &Config) -> Result<()> {
 async fn check(publish: &Publish, state: &State) -> Result<()> {
     let creds = Credentials::load(publish)?;
     let client = Client::login(&creds).await?;
-    println!("authenticated as {} ({})", creds.handle, client.did());
+    println!("authenticated as {} ({})", client.handle(), client.did());
 
     // Warn (don't fail) if the state was written against a different account —
     // same guard `publish` uses, since the records would belong to another repo.

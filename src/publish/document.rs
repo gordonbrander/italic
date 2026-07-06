@@ -116,12 +116,16 @@ pub fn publication_rkey(site_url: &str) -> String {
     rkey_hash(site_url)
 }
 
-/// AT-URI of a doc's `site.standard.document` record. Fully derivable from
-/// config (`publish.did`, `site.url`) + the doc's output path — no publish
-/// state needed. The build-time verification `<link>` and `italic publish`
-/// both construct record addresses through here, so they can never drift.
+/// AT-URI of a doc's `site.standard.document` record. Fully derivable from the
+/// account DID (`ITALIC_ATPROTO_DID`), `site.url`, and the doc's output path —
+/// no publish state needed. The build-time verification `<link>` and `italic
+/// publish` both construct record addresses through here, so they can never
+/// drift.
 pub fn document_uri(did: &str, canonical_url: &str) -> String {
-    format!("at://{did}/{DOCUMENT_NSID}/{}", document_rkey(canonical_url))
+    format!(
+        "at://{did}/{DOCUMENT_NSID}/{}",
+        document_rkey(canonical_url)
+    )
 }
 
 /// AT-URI of the site's `site.standard.publication` record, derived the same
@@ -275,7 +279,10 @@ mod tests {
         assert_eq!(rkey.len(), 52);
         assert!(rkey.chars().all(|c| matches!(c, 'a'..='z' | '2'..='7')));
         // Origin-sensitive: same path on different origins → different rkeys.
-        assert_ne!(document_rkey("https://a.com/p/"), document_rkey("https://b.com/p/"));
+        assert_ne!(
+            document_rkey("https://a.com/p/"),
+            document_rkey("https://b.com/p/")
+        );
     }
 
     #[test]
@@ -329,7 +336,12 @@ mod tests {
     #[test]
     fn document_serializes_to_lexicon_shape() {
         let d = doc();
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["$type"], "site.standard.document");
         assert_eq!(v["site"], "at://did:plc:abc/site.standard.publication/self");
@@ -357,7 +369,12 @@ mod tests {
         // Raw/Yaml docs carry no Markdown source, so the content union is omitted.
         let mut d = doc();
         d.markdown = None;
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert!(v.get("content").is_none());
     }
@@ -366,7 +383,12 @@ mod tests {
     fn document_includes_updated_when_later_than_published() {
         let mut d = doc();
         d.updated = at("2024-02-01");
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["updatedAt"], "2024-02-01T14:30:00.000Z");
     }

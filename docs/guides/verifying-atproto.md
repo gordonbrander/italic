@@ -53,7 +53,7 @@ writes a record or modifies the state file. It needs:
 
 - A [`publish:`](../reference/config.md#publish) block in `config.yaml`.
 - Credentials in the environment — the same
-  `ITALIC_ATPROTO_HANDLE` / `ITALIC_ATPROTO_APP_PASSWORD` you use to publish.
+  `ITALIC_ATPROTO_DID` / `ITALIC_ATPROTO_APP_PASSWORD` you use to publish.
 - A prior `italic publish`, since it verifies what's recorded in
   `.italic/atproto.yaml`. With no state there's nothing to verify, and the
   command says so.
@@ -80,7 +80,7 @@ Records are addressed by your account's **DID** and served by your **PDS**:
 ```sh
 HANDLE=alice.example.com
 
-# handle -> DID
+# handle -> DID (or: italic atproto resolve-did $HANDLE)
 DID=$(curl -s \
   "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=$HANDLE" \
   | jq -r .did)
@@ -154,10 +154,10 @@ curl -s https://example.com/posts/getting-started/ \
 
 The per-page tag is emitted by the built-in `standard_link` metadata filter
 (included in the `{{ page | metadata(site=site) }}` umbrella — see the
-[Metadata guide](metadata.md)). Both proofs are *derived* from `publish.did` +
-`site.url` — record keys are hashes of your canonical URLs — so they're present
-in every build, independent of the publish state file, and must simply agree
-with what the PDS returns.
+[Metadata guide](metadata.md)). Both proofs are *derived* from
+`ITALIC_ATPROTO_DID` + `site.url` — record keys are hashes of your canonical
+URLs — so they're present in every build, independent of the publish state
+file, and must simply agree with what the PDS returns.
 
 When the well-known file, the per-page `<link>`, and the PDS records all agree,
 the round-trip is verified: your domain claims the records, and the records exist.

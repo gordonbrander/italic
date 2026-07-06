@@ -88,8 +88,9 @@ frontmatter: the document's `coverImage` blob comes from the page's `image:`
 (then `site.image`) — the same fields the
 [metadata filters](../guides/metadata.md) use for social cards.
 
-When `publish.did` is configured, each document's standard.site AT-URI is
-derived at build time and exposed to templates as `page.data.atproto_uri`, for
+When the `ITALIC_ATPROTO_DID` env var is set, each document's standard.site
+AT-URI is derived at build time and exposed to templates as
+`page.data.atproto_uri`, for
 emitting the verification `<link>` tag. See the
 [Publishing guide](../guides/publishing-atproto.md#verification-artifacts).
 

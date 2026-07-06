@@ -24,7 +24,7 @@ Client ──auth──▶ PDS ──signs & stores records──▶ Repository
 
 ## Authenticating a CLI to post records to a PDS
 
-1. **Resolve identity (optional but typical).** Turn a handle into a DID and find the user's PDS via the PLC directory (`com.atproto.identity.resolveHandle`, then the DID doc gives the PDS service endpoint). If you already know the PDS host, you can skip ahead.
+1. **Resolve identity (optional but typical).** Turn a handle into a DID and find the user's PDS via the PLC directory (`com.atproto.identity.resolveHandle`, then the DID doc gives the PDS service endpoint). If you already know the PDS host, you can skip ahead. (italic ships this as `italic atproto resolve-did <handle>` — italic is DID-only elsewhere, so this is the on-ramp from a handle to `ITALIC_ATPROTO_DID`.)
 
 2. **Create a session.** Call `com.atproto.server.createSession` with an *identifier* (handle or DID) and a **password**. Best practice: use an **App Password** (generated in Bluesky settings) rather than the account's main password — it's revocable and scoped.
 

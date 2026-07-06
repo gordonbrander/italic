@@ -52,3 +52,7 @@ pub fn publish(options: publish::Options) -> Result<()> {
 pub fn pubstatus() -> Result<()> {
     command::pubstatus::run()
 }
+
+pub fn atproto_resolve_did(handle: &str) -> Result<()> {
+    command::atproto::resolve_did(handle)
+}

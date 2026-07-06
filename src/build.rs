@@ -79,8 +79,9 @@ pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocInd
     classify::backlinks(&mut index);
     // Derive published docs' AT-URIs (for the standard.site `<link>` proof) before
     // the index freezes. Gated on `publish.verification`; a no-op without the
-    // `publish.did` + `site.url` derivation inputs.
-    standard_link::run(&config, &mut index)?;
+    // `ITALIC_ATPROTO_DID` + `site.url` derivation inputs.
+    let did = crate::publish::atproto::env_did()?;
+    standard_link::run(&config, did.as_deref(), &mut index)?;
     Ok((config, site_data, Arc::new(index)))
 }
 
@@ -94,8 +95,9 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let mut outputs = template::run(&config, &site_data, &index, archive_docs)?;
     outputs.extend(alias::run(&config, &index)?);
     // The standard.site publication proof (.well-known), gated on
-    // `publish.verification` and emitted once a publication has been published.
-    outputs.extend(well_known::run(&config)?);
+    // `publish.verification` + the `ITALIC_ATPROTO_DID`/`site.url` inputs.
+    let did = crate::publish::atproto::env_did()?;
+    outputs.extend(well_known::run(&config, did.as_deref())?);
     write::run(&config, &outputs)?;
     static_copy::run(&config)?;
     Ok(())

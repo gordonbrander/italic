@@ -164,5 +164,4 @@ mod tests {
         s.doc_mut(Path::new("a.md")).document = Some(RecordRef::default());
         assert_eq!(s.records.len(), 1);
     }
-
 }

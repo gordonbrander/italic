@@ -698,9 +698,7 @@ mod tests {
         register(&mut tera, cfg().site_url, cfg().base_path, cfg().feed_names);
         let mut ctx = tera::Context::new();
         ctx.insert("page", &page_with_atproto_uri());
-        let out = tera
-            .render_str("{{ page | standard_link }}", &ctx)
-            .unwrap();
+        let out = tera.render_str("{{ page | standard_link }}", &ctx).unwrap();
         // Exact output: the `at://` slashes must survive unescaped.
         assert_eq!(
             out,

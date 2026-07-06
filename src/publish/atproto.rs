@@ -1,9 +1,12 @@
 //! XRPC client + app-password auth for the PDS.
 //!
 //! v1 uses **app-password** auth (`com.atproto.server.createSession`), the
-//! pragmatic near-term path; OAuth+DPoP is a fast-follow. The app password comes
-//! only from the environment — **never** `config.yaml`. The non-secret host and
-//! handle come from the environment too, falling back to the `publish:` config.
+//! pragmatic near-term path; OAuth+DPoP is a fast-follow. The account identity
+//! is the **DID** (`ITALIC_ATPROTO_DID`) — createSession accepts a DID as the
+//! identifier, and the same env var drives the build-time verification
+//! artifacts, so there is a single source of truth. The app password comes only
+//! from the environment — **never** `config.yaml`. The non-secret host comes
+//! from the environment too, falling back to the `publish:` config.
 //! The [`Client`] wraps an `atrium-api` agent and exposes the repo operations
 //! publishing needs: [`Client::upload_blob`] and [`Client::put_record`]
 //! (create-or-update at a stable rkey, for documents/publication).
@@ -16,37 +19,50 @@ use atrium_api::types::{BlobRef, TryIntoUnknown};
 use atrium_xrpc_client::reqwest::ReqwestClient;
 use serde::Serialize;
 
-/// Env var names. The app password is read only from here; the host/handle read
-/// from here first, then fall back to the (non-secret) `publish:` config.
+/// Env var names. The app password and DID are read only from here; the host
+/// reads from here first, then falls back to the (non-secret) `publish:` config.
 const ENV_PDS_HOST: &str = "ITALIC_ATPROTO_PDS_HOST";
-const ENV_HANDLE: &str = "ITALIC_ATPROTO_HANDLE";
+const ENV_DID: &str = "ITALIC_ATPROTO_DID";
 const ENV_APP_PASSWORD: &str = "ITALIC_ATPROTO_APP_PASSWORD";
 
 type Session = CredentialSession<MemorySessionStore, ReqwestClient>;
 
-/// Resolved connection secrets. The host/handle may come from config; the app
+/// Read the account DID from `ITALIC_ATPROTO_DID`. `Ok(None)` when unset (build
+/// treats that as "skip verification artifacts"); a set-but-malformed value is a
+/// hard error so a pasted handle fails loudly instead of minting bogus AT-URIs.
+pub fn env_did() -> Result<Option<String>> {
+    match env(ENV_DID) {
+        None => Ok(None),
+        Some(did) if did.starts_with("did:") => Ok(Some(did)),
+        Some(other) => Err(anyhow!(
+            "{ENV_DID} must be a DID like `did:plc:…` (got `{other}`) — \
+             run `italic atproto resolve-did {other}` to look yours up"
+        )),
+    }
+}
+
+/// Resolved connection secrets. The host may come from config; the DID and app
 /// password must come from the environment.
 pub struct Credentials {
     pub pds_host: String,
-    pub handle: String,
+    pub did: String,
     pub app_password: String,
 }
 
 impl Credentials {
     /// Resolve credentials from the environment, with a config fallback for the
-    /// non-secret host/handle. The app password is secret: it is read only from
-    /// `ITALIC_ATPROTO_APP_PASSWORD`, never config, and its absence is a hard
-    /// error.
+    /// non-secret host. The DID is read only from `ITALIC_ATPROTO_DID` and the
+    /// app password only from `ITALIC_ATPROTO_APP_PASSWORD` (secret — never
+    /// config); either one missing is a hard error.
     pub fn load(publish: &Publish) -> Result<Credentials> {
         let pds_host = env(ENV_PDS_HOST).unwrap_or_else(|| publish.pds_host.clone());
 
-        let handle = env(ENV_HANDLE)
-            .or_else(|| publish.handle.clone())
-            .ok_or_else(|| {
-                anyhow!(
-                    "no handle configured — set {ENV_HANDLE} or `publish.handle` in config.yaml"
-                )
-            })?;
+        let did = env_did()?.ok_or_else(|| {
+            anyhow!(
+                "no DID — set {ENV_DID} \
+                 (run `italic atproto resolve-did <your-handle>` to look it up)"
+            )
+        })?;
 
         let app_password = env(ENV_APP_PASSWORD).ok_or_else(|| {
             anyhow!(
@@ -58,7 +74,7 @@ impl Credentials {
 
         Ok(Credentials {
             pds_host,
-            handle,
+            did,
             app_password,
         })
     }
@@ -79,28 +95,36 @@ pub struct Client {
     agent: Agent<Session>,
     /// The repo DID resolved from the session, used as the `repo` for writes.
     did: String,
+    /// The account handle resolved from the session, for friendly display.
+    handle: String,
 }
 
 impl Client {
-    /// Authenticate with app-password auth and return a ready client. Resolves the
-    /// account DID from the session.
+    /// Authenticate with app-password auth and return a ready client. The DID is
+    /// the createSession identifier; the session echoes back the DID and handle.
     pub async fn login(creds: &Credentials) -> Result<Client> {
         let session = CredentialSession::new(
             ReqwestClient::new(&creds.pds_host),
             MemorySessionStore::default(),
         );
         let out = session
-            .login(&creds.handle, &creds.app_password)
+            .login(&creds.did, &creds.app_password)
             .await
-            .map_err(|e| anyhow!("createSession failed for {}: {e}", creds.handle))?;
+            .map_err(|e| anyhow!("createSession failed for {}: {e}", creds.did))?;
         let did = out.data.did.as_str().to_string();
+        let handle = out.data.handle.as_str().to_string();
         let agent = Agent::new(session);
-        Ok(Client { agent, did })
+        Ok(Client { agent, did, handle })
     }
 
     /// The authenticated account DID (`did:plc:…` / `did:web:…`).
     pub fn did(&self) -> &str {
         &self.did
+    }
+
+    /// The authenticated account handle, as reported by the session.
+    pub fn handle(&self) -> &str {
+        &self.handle
     }
 
     /// Upload raw bytes as a blob and return the reference to embed in a record
@@ -220,8 +244,6 @@ mod tests {
     fn publish_config() -> Publish {
         Publish {
             pds_host: "https://bsky.social".into(),
-            handle: Some("config.handle".into()),
-            did: None,
             collection: "all".into(),
             verification: true,
             publication: Publication::default(),
@@ -235,12 +257,40 @@ mod tests {
     fn resolve_credentials() {
         let clear = || unsafe {
             std::env::remove_var(ENV_PDS_HOST);
-            std::env::remove_var(ENV_HANDLE);
+            std::env::remove_var(ENV_DID);
             std::env::remove_var(ENV_APP_PASSWORD);
         };
 
-        // No app password anywhere → hard error pointing at the env var.
+        // No DID anywhere → hard error pointing at the env var.
         clear();
+        unsafe {
+            std::env::set_var(ENV_APP_PASSWORD, "pw");
+        }
+        let err = format!(
+            "{:#}",
+            Credentials::load(&publish_config())
+                .err()
+                .expect("should error without a DID")
+        );
+        assert!(err.contains(ENV_DID), "{err}");
+
+        // A handle pasted into the DID slot fails loudly.
+        unsafe {
+            std::env::set_var(ENV_DID, "alice.example.com");
+        }
+        let err = format!(
+            "{:#}",
+            Credentials::load(&publish_config())
+                .err()
+                .expect("should reject a non-DID value")
+        );
+        assert!(err.contains("must be a DID"), "{err}");
+
+        // No app password → hard error pointing at the env var.
+        clear();
+        unsafe {
+            std::env::set_var(ENV_DID, "did:plc:abc");
+        }
         let err = format!(
             "{:#}",
             Credentials::load(&publish_config())
@@ -249,22 +299,21 @@ mod tests {
         );
         assert!(err.contains("app password"), "{err}");
 
-        // Password from env; host/handle fall back to config.
-        clear();
+        // DID + password from env; host falls back to config.
         unsafe {
             std::env::set_var(ENV_APP_PASSWORD, "pw");
         }
         let creds = Credentials::load(&publish_config()).unwrap();
-        assert_eq!(creds.handle, "config.handle");
+        assert_eq!(creds.did, "did:plc:abc");
         assert_eq!(creds.app_password, "pw");
         assert_eq!(creds.pds_host, "https://bsky.social");
 
-        // Env overrides the config handle.
+        // Env overrides the config host.
         unsafe {
-            std::env::set_var(ENV_HANDLE, "env.handle");
+            std::env::set_var(ENV_PDS_HOST, "https://pds.example");
         }
         let creds = Credentials::load(&publish_config()).unwrap();
-        assert_eq!(creds.handle, "env.handle");
+        assert_eq!(creds.pds_host, "https://pds.example");
 
         clear();
     }

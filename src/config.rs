@@ -139,8 +139,9 @@ pub struct Config {
     pub feed: Feed,
     /// Non-secret `publish:` settings (PDS host, target collection, publication
     /// metadata). `None` when the site declares no `publish:` block
-    /// — the `publish` command errors in that case. Secrets (handle/app password)
-    /// are read from the environment, never from here. See [`crate::publish::config`].
+    /// — the `publish` command errors in that case. The account DID and app
+    /// password are read from the environment, never from here. See
+    /// [`crate::publish::config`].
     #[serde(skip)]
     pub publish: Option<crate::publish::config::Publish>,
 }
@@ -1421,10 +1422,10 @@ mod tests {
     #[test]
     fn publish_block_parsed_and_defaults_to_all_collection() {
         let dir = tempdir("config");
-        let path = write_config(&dir, "publish:\n  handle: alice.example.com\n");
+        let path = write_config(&dir, "publish:\n  pds_host: https://pds.example\n");
         let (config, _) = Config::load_with_theme(&path).unwrap();
         let publish = config.publish.expect("publish block present");
-        assert_eq!(publish.handle.as_deref(), Some("alice.example.com"));
+        assert_eq!(publish.pds_host, "https://pds.example");
         // Defaults to the always-present `all` collection, which validates.
         assert_eq!(publish.collection, ALL);
         cleanup(&dir);

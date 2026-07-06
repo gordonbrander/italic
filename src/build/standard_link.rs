@@ -1,10 +1,11 @@
 //! Per-document standard.site ownership proof. standard.site verifies each
 //! published page with a `<link rel="site.standard.document" href="at://…">` tag
-//! in its `<head>`. The AT-URI is fully derivable from config — `at://` +
-//! `publish.did` + the collection NSID + an rkey hashed from the doc's canonical
-//! URL (see [`crate::publish::document::document_uri`]) — so this pass computes
-//! it directly; no publish state, no network, and the proofs are present in
-//! every build (including CI, where the state file typically doesn't exist).
+//! in its `<head>`. The AT-URI is fully derivable from the inputs at hand —
+//! `at://` + the account DID (`ITALIC_ATPROTO_DID`) + the collection NSID + an
+//! rkey hashed from the doc's canonical URL (see
+//! [`crate::publish::document::document_uri`]) — so this pass computes it
+//! directly; no publish state, no network, and the proofs are present in every
+//! build (including CI, where the state file typically doesn't exist).
 //!
 //! The pass injects the URI into each published doc's `data` as `atproto_uri`;
 //! the tag itself is emitted by the built-in `standard_link` metadata filter
@@ -13,10 +14,10 @@
 //! hand-rolled heads can still read `page.data.atproto_uri` directly.
 //!
 //! It runs inside [`crate::build::build_index`] before the index freezes, and is
-//! a no-op unless `publish.verification` (default on), `publish.did`, and
-//! `site.url` are all present. Because `italic publish` derives record addresses
-//! through the same functions, a page's proof link and its record can only
-//! disagree between a URL change and the next publish.
+//! a no-op unless `publish.verification` (default on), the `ITALIC_ATPROTO_DID`
+//! env var, and `site.url` are all present. Because `italic publish` derives
+//! record addresses through the same functions, a page's proof link and its
+//! record can only disagree between a URL change and the next publish.
 
 use crate::config::Config;
 use crate::doc_index::DocIndex;
@@ -29,23 +30,17 @@ use std::path::PathBuf;
 /// `page.data.atproto_uri`).
 pub const DATA_KEY: &str = "atproto_uri";
 
-pub fn run(config: &Config, index: &mut DocIndex) -> Result<()> {
+pub fn run(config: &Config, did: Option<&str>, index: &mut DocIndex) -> Result<()> {
     let Some(publish) = &config.publish else {
         return Ok(());
     };
     if !publish.verification {
         return Ok(());
     }
-    let (Some(did), Some(site_url)) = (&publish.did, &config.site_url) else {
+    let (Some(did), Some(site_url)) = (did, &config.site_url) else {
         return Ok(());
     };
-    inject(
-        index,
-        did,
-        site_url,
-        &config.base_path,
-        &publish.collection,
-    );
+    inject(index, did, site_url, &config.base_path, &publish.collection);
     Ok(())
 }
 
@@ -116,8 +111,7 @@ mod tests {
         let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
         inject(&mut index, DID, SITE_URL, "", "posts");
         // Exactly the URI publish would write: same canonical_url + rkey fns.
-        let expected =
-            document::document_uri(DID, "https://example.com/posts/hello/");
+        let expected = document::document_uri(DID, "https://example.com/posts/hello/");
         assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }
 
@@ -145,8 +139,7 @@ mod tests {
     fn base_path_participates_in_the_derived_url() {
         let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
         inject(&mut index, DID, SITE_URL, "/blog", "posts");
-        let expected =
-            document::document_uri(DID, "https://example.com/blog/posts/hello/");
+        let expected = document::document_uri(DID, "https://example.com/blog/posts/hello/");
         assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }
 }
