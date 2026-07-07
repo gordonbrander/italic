@@ -343,7 +343,7 @@ fn alerts_math() {
 
 #[test]
 fn co_located_media() {
-    run_build("23_co_located_media");
+    run_build("27_co_located_media");
 }
 
 #[test]
