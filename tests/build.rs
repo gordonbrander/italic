@@ -337,6 +337,11 @@ fn standard_site() {
 }
 
 #[test]
+fn alerts_math() {
+    run_build("26_alerts_math");
+}
+
+#[test]
 fn scaffold() {
     // The 12_scaffold fixture has no input files — just an `expected/` dir.
     // The test exercises the real scaffold code path: scaffold into a temp dir

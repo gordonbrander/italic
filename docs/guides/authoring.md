@@ -15,6 +15,8 @@ including:
 - Inline `#hashtags` lifted into your tags (when enabled) — see
   [Taxonomies & hashtags](taxonomies.md)
 - Syntax-highlighted code fences
+- Callouts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
+  `[!CAUTION]`) and inline/display math (`$...$`, `$$...$$`, ` ```math ` fences)
 
 ## The three content types
 
