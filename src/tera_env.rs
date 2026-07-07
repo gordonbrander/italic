@@ -70,7 +70,9 @@ pub struct MarkupEnv {
 /// macros, the wikilink rewrite, and author inline HTML all rely on it — same
 /// trust model as the previous pulldown-cmark `html` feature). GFM extensions
 /// are on, plus the wikilink extension whose `[[url|label]]` order matches
-/// Italic's `[[Target|Display]]`.
+/// Italic's `[[Target|Display]]`, GitHub-style alert callouts
+/// (`> [!NOTE]`/`[!TIP]`/`[!IMPORTANT]`/`[!WARNING]`/`[!CAUTION]`), and
+/// inline/display/fenced math (`$...$`, `$$...$$`, ` ```math `).
 fn markup_options() -> comrak::Options<'static> {
     let mut options = comrak::Options::default();
     options.render.r#unsafe = true;
@@ -80,6 +82,9 @@ fn markup_options() -> comrak::Options<'static> {
     options.extension.tasklist = true;
     options.extension.footnotes = true;
     options.extension.autolink = true;
+    options.extension.alerts = true;
+    options.extension.math_dollars = true;
+    options.extension.math_code = true;
     options
 }
 
