@@ -216,21 +216,21 @@ Override any feed's markup with a disk archive at the matching path (e.g.
 `collections:`. Feeds cap at the 25 most recent items per the collection's own
 order.
 
-## `publish`
+## `atproto`
 
-Non-secret settings for `italic publish`, which syncs your site to an ATProto
+Non-secret settings for `italic atproto publish`, which syncs your site to an ATProto
 PDS as [standard.site](https://standard.site/) documents. Absent by default —
-without a `publish:` block, `italic publish`
-errors. **Secrets never go here**: your app password comes from the environment
-(`ITALIC_ATPROTO_APP_PASSWORD`), and your handle may too
-(`ITALIC_ATPROTO_HANDLE`). Unknown keys (in the block or its sub-maps) are an
-error. See the
+without an `atproto:` block, `italic atproto publish`
+errors. **Your identity and secrets never go here**: the account DID comes from
+the environment (`ITALIC_ATPROTO_DID` — look it up with
+`italic atproto did <handle>`), and so does your app password
+(`ITALIC_ATPROTO_APP_PASSWORD`). Unknown keys (in the block or its sub-maps)
+are an error. See the
 [Publishing guide](../guides/publishing-atproto.md).
 
 ```yaml
-publish:
+atproto:
   pds_host: https://bsky.social   # optional
-  handle: alice.example.com       # optional here; usually set via env
   collection: posts               # which collection becomes documents
   verification: true              # emit the .well-known + <link> proofs
   publication:
@@ -244,16 +244,15 @@ Top-level keys:
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `pds_host` | string | `https://bsky.social` | PDS XRPC host. |
-| `handle` | string | none | Account handle. Overridden by `ITALIC_ATPROTO_HANDLE`. |
+| `pds_host` | string | `https://bsky.social` | PDS XRPC host. Overridden by `ITALIC_ATPROTO_PDS_HOST`. |
 | `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
-| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). |
+| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). Needs `ITALIC_ATPROTO_DID` and `site.url` — the derivation inputs. |
 | `publication` | mapping | — | The `site.standard.publication` record metadata. |
 
 `publication` keys: `name` and `url` (both required to publish), `description`,
 and `icon` (a path uploaded as a blob).
 
-The secret/handle/host resolution and the state file are covered in the
+The env-var resolution is covered in the
 [Publishing guide](../guides/publishing-atproto.md).
 
 ## Theme config merging

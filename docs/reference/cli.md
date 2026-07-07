@@ -47,47 +47,71 @@ the output directory.
 italic watch
 ```
 
-## `italic publish`
+## `italic atproto publish`
 
 Build the site and sync it to your ATProto PDS as standard.site documents.
-Unlike the other commands this one is networked, stateful, and authenticated,
-and it writes **no HTML** — it reuses the build only to obtain your rendered
-documents. Requires a [`publish:`](config.md#publish) block and credentials
-(see the [Publishing guide](../guides/publishing-atproto.md)).
+Unlike the other commands this one is networked and authenticated, and it
+writes **no HTML** — it reuses the build only to obtain your rendered
+documents. Records that are identical to what the PDS already holds are
+skipped (no blob upload, no repo commit); the summary reports the split
+(`done: 2 put, 40 unchanged`). Requires an [`atproto:`](config.md#atproto)
+block and credentials (see the
+[Publishing guide](../guides/publishing-atproto.md)).
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--dry-run` | off | Build records and report what would change, making no network calls. |
 
-Drafts are never published (the build runs with drafts excluded). The app
-password comes from the environment (`ITALIC_ATPROTO_APP_PASSWORD`) — never
-`config.yaml`.
+Drafts are never published (the build runs with drafts excluded). Your account
+DID and app password come from the environment (`ITALIC_ATPROTO_DID`,
+`ITALIC_ATPROTO_APP_PASSWORD`) — never `config.yaml`. Look your DID up with
+[`italic atproto did`](#italic-atproto-did-handle).
 
 ```sh
-italic publish --dry-run   # preview — safe, no network
-italic publish             # sync document + publication records
+italic atproto publish --dry-run   # preview — safe, no network
+italic atproto publish             # sync document + publication records
 ```
 
-## `italic pubstatus`
+## `italic atproto status`
 
-Read back the records `italic publish` wrote and confirm they still exist on your
-PDS and match local state. Networked, authenticated, and **read-only** — it never
-writes a record or touches the state file. Unlike `publish` it does **not** build
-the site, so it works even while your content is mid-edit. Requires a
-[`publish:`](config.md#publish) block, credentials, and a prior `publish` (it
-checks what's recorded in `.italic/atproto.yaml`).
+Compare the records your site *should* have against what your PDS actually
+holds (via `com.atproto.repo.listRecords`) — the PDS is the source of truth;
+there is no local state file. Networked, authenticated, and **read-only** — it
+never writes a record. Like `atproto publish` it builds the site index (drafts
+excluded, no HTML written) to derive the expected records, so it requires an
+[`atproto:`](config.md#atproto) block, `site.url`, and credentials.
 
-For each recorded record it reports `ok` (present, content hash matches),
-`CHANGED` (present, but the live CID differs — edited or re-written since publish),
-or `MISSING` (absent). If anything is MISSING or CHANGED the command **exits
-nonzero**, so it can gate a CI step.
+For each expected record it reports `ok` (present and identical to the locally
+built record), `CHANGED` (present but differing — unpublished local edits, or
+rewritten by another client; re-publish to reconcile), or `MISSING` (absent —
+re-publish to fix), plus `ORPHANED` for records on the PDS that reference your
+publication but have no matching local doc (deleted or renamed sources). If
+anything is MISSING or CHANGED the command **exits nonzero**, so it can gate a
+CI step; orphans only warn.
 
 ```sh
-italic pubstatus   # check every published record
+italic atproto status   # check every published record
 ```
 
 See the [Verifying guide](../guides/verifying-atproto.md) for the full workflow,
 including manual verification with `curl`.
+
+## `italic atproto did <handle>`
+
+Resolve an ATProto handle (e.g. `alice.bsky.social`) to its DID — the permanent
+account identifier that `ITALIC_ATPROTO_DID` expects. Networked but
+**unauthenticated**: it calls the public `com.atproto.identity.resolveHandle`
+endpoint; no config or credentials needed.
+
+The bare DID is printed to stdout (so it's scriptable); an `export` hint goes
+to stderr.
+
+```sh
+italic atproto did alice.bsky.social
+# did:plc:abc123…
+
+export ITALIC_ATPROTO_DID=$(italic atproto did alice.bsky.social)
+```
 
 ## `italic new <path>`
 

@@ -21,6 +21,7 @@
 //! {{ page | meta_description(site=site) }}
 //! {{ page | meta_keywords }}
 //! {{ page | canonical_link }}
+//! {{ page | standard_link }}
 //! {{ page | open_graph(site=site, type="article") }}
 //! {{ page | twitter_card(site=site) }}
 //! {{ page | json_ld(site=site) }}
@@ -85,6 +86,11 @@ pub fn register(
     env.register_filter(
         "canonical_link",
         SafeFilter(move |page: &Value, _args: &Kwargs| join(render_canonical(page, &c))),
+    );
+
+    env.register_filter(
+        "standard_link",
+        SafeFilter(|page: &Value, _args: &Kwargs| join(render_standard_link(page))),
     );
 
     let c = cfg.clone();
@@ -305,6 +311,22 @@ fn render_canonical(page: &Value, cfg: &MetaCfg) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// standard.site per-document ownership proof, from `page.data.atproto_uri`
+/// (derived by the `standard_link` build pass when `ITALIC_ATPROTO_DID` and
+/// `site.url` are set — see `crate::build::standard_link`). The AT-URI is
+/// already absolute; it must not go through [`abs_url`], which would mangle the
+/// `at://` scheme.
+fn render_standard_link(page: &Value) -> Vec<String> {
+    data_field(page, "atproto_uri")
+        .map(|uri| {
+            vec![format!(
+                "<link rel=\"site.standard.document\" href=\"{}\">",
+                html::escape(uri)
+            )]
+        })
+        .unwrap_or_default()
+}
+
 fn render_open_graph(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> Vec<String> {
     let mut out = vec![meta_prop("og:type", og_type)];
     if let Some(t) = title(page, site) {
@@ -459,6 +481,7 @@ fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> 
         blocks.push(meta_name("robots", "noindex"));
     }
     blocks.extend(render_canonical(page, cfg));
+    blocks.extend(render_standard_link(page));
     blocks.extend(render_open_graph(page, site, og_type, cfg));
     blocks.extend(render_twitter_card(page, site, cfg));
     let json_ld = render_json_ld(page, site, og_type, cfg);
@@ -660,6 +683,51 @@ mod tests {
         assert!(out.contains(r#"<meta name="robots" content="noindex">"#));
         // The non-draft fixture page must not get noindex.
         assert!(!render("metadata", "page", "site=site").contains("noindex"));
+    }
+
+    /// A page carrying the AT-URI the `standard_link` build pass injects.
+    fn page_with_atproto_uri() -> Value {
+        let mut p = page();
+        p["data"]["atproto_uri"] = json!("at://did:plc:abc/site.standard.document/xyz");
+        p
+    }
+
+    #[test]
+    fn standard_link_emits_proof_link() {
+        let mut tera = Tera::default();
+        register(&mut tera, cfg().site_url, cfg().base_path, cfg().feed_names);
+        let mut ctx = tera::Context::new();
+        ctx.insert("page", &page_with_atproto_uri());
+        let out = tera.render_str("{{ page | standard_link }}", &ctx).unwrap();
+        // Exact output: the `at://` slashes must survive unescaped.
+        assert_eq!(
+            out,
+            r#"<link rel="site.standard.document" href="at://did:plc:abc/site.standard.document/xyz">"#
+        );
+    }
+
+    #[test]
+    fn standard_link_empty_when_absent() {
+        assert_eq!(render("standard_link", "page", ""), "");
+    }
+
+    #[test]
+    fn metadata_umbrella_includes_standard_link_after_canonical() {
+        let mut tera = Tera::default();
+        register(&mut tera, cfg().site_url, cfg().base_path, cfg().feed_names);
+        let mut ctx = tera::Context::new();
+        ctx.insert("page", &page_with_atproto_uri());
+        ctx.insert("site", &site());
+        let out = tera
+            .render_str("{{ page | metadata(site=site) }}", &ctx)
+            .unwrap();
+        let canonical = out.find(r#"rel="canonical""#).expect("canonical link");
+        let standard = out
+            .find(r#"rel="site.standard.document""#)
+            .expect("standard.site link");
+        assert!(canonical < standard);
+        // A page without the AT-URI emits no proof link.
+        assert!(!render("metadata", "page", "site=site").contains("site.standard.document"));
     }
 
     /// Version-agnostic: assert against `env!`, never a hardcoded number.

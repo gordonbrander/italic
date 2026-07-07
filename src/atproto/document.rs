@@ -5,14 +5,14 @@
 //! and the record set is small, so we serialize plain serde structs to the
 //! documented JSON shape (`$type` discriminator + camelCase fields, optionals
 //! omitted). The PDS validates optimistically, and records are sent as
-//! `Unknown` either way (see [`crate::publish::atproto`]). Blob references reuse
+//! `Unknown` either way (see [`crate::atproto::client`]). Blob references reuse
 //! `atrium_api::types::BlobRef`, which already serializes to the data-model blob
 //! shape.
 
 use crate::doc::Doc;
 use crate::html;
 use crate::permalink;
-use atrium_api::types::BlobRef;
+use atrium_api::types::{Blob, BlobRef, CidLink, TypedBlobRef};
 use chrono::SecondsFormat;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -102,10 +102,36 @@ fn rkey_hash(input: &str) -> String {
     data_encoding::BASE32_NOPAD.encode(&digest).to_lowercase()
 }
 
+/// CIDv1 string (raw codec, sha-256) for blob bytes, exactly as the PDS mints
+/// for `uploadBlob`: multibase `b` + base32-lower of the CID bytes
+/// `[0x01 (v1), 0x55 (raw), 0x12 (sha2-256), 0x20 (32 bytes)] ++ sha256(bytes)`.
+/// Lets publish/status derive a blob's address offline, without uploading.
+pub fn blob_cid(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut cid = vec![0x01, 0x55, 0x12, 0x20];
+    cid.extend_from_slice(&digest);
+    format!("b{}", data_encoding::BASE32_NOPAD.encode(&cid).to_lowercase())
+}
+
+/// A [`BlobRef`] derived locally from file bytes — same `ref.$link` and `size`
+/// the PDS would return from `uploadBlob`. The mimeType is a placeholder
+/// (`*/*`, what atrium sends as Content-Type); record comparison ignores it
+/// (see [`crate::atproto::compare`]).
+pub fn derived_blob_ref(bytes: &[u8]) -> Result<BlobRef, anyhow::Error> {
+    let cid = blob_cid(bytes);
+    let link = CidLink::try_from(cid.as_str())
+        .map_err(|e| anyhow::anyhow!("constructing CID link {cid}: {e}"))?;
+    Ok(BlobRef::Typed(TypedBlobRef::Blob(Blob {
+        r#ref: link,
+        mime_type: "*/*".into(),
+        size: bytes.len(),
+    })))
+}
+
 /// Record key for a doc's `site.standard.document`, derived from its absolute
 /// canonical URL (origin + path) so two sites published to one PDS never collide.
-/// Pass the output of [`canonical_url`]. Deterministic and reconstructible from
-/// config + the doc's output path even if the state file is lost.
+/// Pass the output of [`canonical_url`]. Deterministic — reconstructible from
+/// config + the doc's output path, so no local bookkeeping is needed.
 pub fn document_rkey(canonical_url: &str) -> String {
     rkey_hash(canonical_url)
 }
@@ -114,6 +140,27 @@ pub fn document_rkey(canonical_url: &str) -> String {
 /// so each site gets its own publication record on a shared PDS.
 pub fn publication_rkey(site_url: &str) -> String {
     rkey_hash(site_url)
+}
+
+/// AT-URI of a doc's `site.standard.document` record. Fully derivable from the
+/// account DID (`ITALIC_ATPROTO_DID`), `site.url`, and the doc's output path.
+/// The build-time verification `<link>` and `italic
+/// atproto` both construct record addresses through here, so they can never
+/// drift.
+pub fn document_uri(did: &str, canonical_url: &str) -> String {
+    format!(
+        "at://{did}/{DOCUMENT_NSID}/{}",
+        document_rkey(canonical_url)
+    )
+}
+
+/// AT-URI of the site's `site.standard.publication` record, derived the same
+/// way as [`document_uri`]. Emitted into `.well-known` at build time.
+pub fn publication_uri(did: &str, site_url: &str) -> String {
+    format!(
+        "at://{did}/{PUBLICATION_NSID}/{}",
+        publication_rkey(site_url)
+    )
 }
 
 /// Site-root-relative path for a doc, e.g. `/blog/post/` or `/posts/p.html`. This
@@ -191,17 +238,17 @@ pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRe
 /// Build the `site.standard.publication` record from config. `icon` is the
 /// pre-uploaded icon blob. Errors if the required `name`/`url` are missing.
 pub fn publication(
-    config: &crate::publish::config::Publication,
+    config: &crate::atproto::config::Publication,
     icon: Option<BlobRef>,
 ) -> anyhow::Result<Publication> {
     let name = config
         .name
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("publish.publication.name is required to publish"))?;
+        .ok_or_else(|| anyhow::anyhow!("atproto.publication.name is required to publish"))?;
     let url = config
         .url
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("publish.publication.url is required to publish"))?;
+        .ok_or_else(|| anyhow::anyhow!("atproto.publication.url is required to publish"))?;
     Ok(Publication {
         type_: PUBLICATION_NSID,
         url,
@@ -218,6 +265,28 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+
+    #[test]
+    fn blob_cid_matches_known_vector() {
+        // The well-known CIDv1 raw sha-256 CID for "hello world" — cross-checks
+        // the hand-rolled encoding against the IPFS/ATProto ecosystem.
+        assert_eq!(
+            blob_cid(b"hello world"),
+            "bafkreifzjut3te2nhyekklss27nh3k72ysco7y32koao5eei66wof36n5e"
+        );
+    }
+
+    #[test]
+    fn derived_blob_ref_serializes_to_blob_shape() {
+        let blob = derived_blob_ref(b"hello world").unwrap();
+        let v = serde_json::to_value(&blob).unwrap();
+        assert_eq!(v["$type"], "blob");
+        assert_eq!(
+            v["ref"]["$link"],
+            "bafkreifzjut3te2nhyekklss27nh3k72ysco7y32koao5eei66wof36n5e"
+        );
+        assert_eq!(v["size"], 11);
+    }
 
     fn at(date: &str) -> DateTime<Utc> {
         NaiveDate::parse_from_str(date, "%Y-%m-%d")
@@ -258,7 +327,26 @@ mod tests {
         assert_eq!(rkey.len(), 52);
         assert!(rkey.chars().all(|c| matches!(c, 'a'..='z' | '2'..='7')));
         // Origin-sensitive: same path on different origins → different rkeys.
-        assert_ne!(document_rkey("https://a.com/p/"), document_rkey("https://b.com/p/"));
+        assert_ne!(
+            document_rkey("https://a.com/p/"),
+            document_rkey("https://b.com/p/")
+        );
+    }
+
+    #[test]
+    fn uris_compose_did_nsid_and_derived_rkey() {
+        assert_eq!(
+            document_uri("did:plc:abc", "https://example.com/blog/getting-started/"),
+            "at://did:plc:abc/site.standard.document/\
+             c5oqyxkz4pfia2zmhhye62t42vdzpiwjdmtphglnfxwpg2y5v4ba"
+        );
+        assert_eq!(
+            publication_uri("did:plc:abc", "https://example.com"),
+            format!(
+                "at://did:plc:abc/site.standard.publication/{}",
+                publication_rkey("https://example.com")
+            )
+        );
     }
 
     #[test]
@@ -296,7 +384,12 @@ mod tests {
     #[test]
     fn document_serializes_to_lexicon_shape() {
         let d = doc();
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["$type"], "site.standard.document");
         assert_eq!(v["site"], "at://did:plc:abc/site.standard.publication/self");
@@ -324,7 +417,12 @@ mod tests {
         // Raw/Yaml docs carry no Markdown source, so the content union is omitted.
         let mut d = doc();
         d.markdown = None;
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert!(v.get("content").is_none());
     }
@@ -333,14 +431,19 @@ mod tests {
     fn document_includes_updated_when_later_than_published() {
         let mut d = doc();
         d.updated = at("2024-02-01");
-        let rec = document(&d, "at://did:plc:abc/site.standard.publication/self", "", None);
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["updatedAt"], "2024-02-01T14:30:00.000Z");
     }
 
     #[test]
     fn publication_requires_name_and_url() {
-        let mut cfg = crate::publish::config::Publication::default();
+        let mut cfg = crate::atproto::config::Publication::default();
         assert!(publication(&cfg, None).is_err());
         cfg.name = Some("My Garden".into());
         assert!(publication(&cfg, None).is_err());

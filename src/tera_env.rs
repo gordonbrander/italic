@@ -305,10 +305,7 @@ mod tests {
         let mut ctx = tera::Context::new();
         ctx.insert("site", &serde_json::json!({ "title": "S" }));
         // `feed_links` over no configured feeds renders empty without erroring.
-        assert_eq!(
-            env.render_str("{{ site | feed_links }}", &ctx).unwrap(),
-            ""
-        );
+        assert_eq!(env.render_str("{{ site | feed_links }}", &ctx).unwrap(), "");
     }
 
     #[test]

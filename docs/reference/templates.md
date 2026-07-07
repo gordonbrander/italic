@@ -321,17 +321,19 @@ a given field is absent.
 
 | Filter | Pipe | Emits |
 |--------|------|-------|
-| `metadata` | `page` | The umbrella: charset, viewport, generator, `<title>`, description, keywords, `robots noindex` for drafts, canonical, Open Graph, Twitter card, JSON-LD, and feed links — a complete `<head>` in one call. |
+| `metadata` | `page` | The umbrella: charset, viewport, generator, `<title>`, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links — a complete `<head>` in one call. |
 | `system_meta` | `page` | Italic/system-controlled tags. Today the generator tag (`<meta name="generator" content="italic <version>">`); the home for future engine-owned `<head>` metadata. |
 | `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
 | `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |
 | `canonical_link` | `page` | `<link rel="canonical">`. |
+| `standard_link` | `page` | `<link rel="site.standard.document">` from `page.data.atproto_uri` — the standard.site per-page proof; empty unless [`ITALIC_ATPROTO_DID`](../guides/publishing-atproto.md#verification-artifacts) is set. |
 | `open_graph` | `page` | `og:*` (and `article:*` when `type="article"`, the default). |
 | `twitter_card` | `page` | `twitter:*` (`summary_large_image` when an image exists). |
 | `json_ld` | `page` | `<script type="application/ld+json">` (`BlogPosting`, or `WebSite` for `type="website"`). |
 | `feed_links` | `site` | One `<link rel="alternate">` per configured `feed:`. |
 
-All take `site=site` as a kwarg (except `meta_keywords` and `feed_links`);
+All take `site=site` as a kwarg (except `meta_keywords`, `standard_link`, and
+`feed_links`);
 `open_graph`/`twitter_card`/`json_ld`/`metadata` accept `type=` (default
 `"article"`; pass `type="website"` on non-article pages like the home page).
 

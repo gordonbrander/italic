@@ -24,8 +24,9 @@ For a complete, sensible `<head>`, pipe `page` through `metadata`:
 That emits, in order: `<meta charset>`, viewport, the generator tag
 (`<meta name="generator" content="italic <version>">`), `<title>` (`Page · Site`),
 the description, keywords, `robots noindex` for [drafts](drafts.md), the canonical
-link, Open Graph tags, the Twitter card, JSON-LD, and a feed-discovery `<link>`
-for each configured [feed](archives.md).
+link, the standard.site proof link (for [published](publishing-atproto.md)
+pages), Open Graph tags, the Twitter card, JSON-LD, and a feed-discovery
+`<link>` for each configured [feed](archives.md).
 
 On non-article pages (a home or landing page), pass `type="website"`:
 
@@ -43,6 +44,7 @@ When you want control over what goes in `<head>`, use the filters individually:
   {{ page | meta_description(site=site) }}
   {{ page | meta_keywords }}
   {{ page | canonical_link }}
+  {{ page | standard_link }}
   {{ page | open_graph(site=site, type="article") }}
   {{ page | twitter_card(site=site) }}
   {{ page | json_ld(site=site) }}
@@ -85,7 +87,8 @@ Frontmatter fields refine the metadata for a single page:
 ---
 title: Hello World
 summary: A short post — used as the description and og:description.
-image: /img/hello.png       # this page's social image (page.data.image)
+image: /img/hello.png       # this page's social image (page.data.image); also
+                            # the ATProto coverImage fallback when publishing
 image_alt: A friendly hello # alt text for the social image
 author: Guest Author        # overrides site.author
 keywords: [rust, ssg]       # used when the page has no tags

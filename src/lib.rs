@@ -1,3 +1,4 @@
+pub mod atproto;
 pub mod backlinks;
 pub mod build;
 pub mod command;
@@ -8,7 +9,6 @@ pub mod doc_index;
 pub mod frontmatter;
 pub mod html;
 pub mod permalink;
-pub mod publish;
 pub mod query;
 pub mod related;
 pub mod site_data;
@@ -45,10 +45,14 @@ pub fn build(include_drafts: bool) -> Result<()> {
     build::run(include_drafts)
 }
 
-pub fn publish(options: publish::Options) -> Result<()> {
-    command::publish::run(options)
+pub fn atproto_publish(options: atproto::Options) -> Result<()> {
+    command::atproto::publish::run(options)
 }
 
-pub fn pubstatus() -> Result<()> {
-    command::pubstatus::run()
+pub fn atproto_status() -> Result<()> {
+    command::atproto::status::run()
+}
+
+pub fn atproto_did(handle: &str) -> Result<()> {
+    command::atproto::did::run(handle)
 }
