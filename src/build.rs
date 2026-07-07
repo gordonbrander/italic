@@ -103,8 +103,9 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let did = crate::atproto::client::env_did()?;
     outputs.extend(well_known::run(&config, did.as_deref())?);
     write::run(&config, &outputs)?;
-    // Mirror co-located media, then let static/ overlay it on any path collision.
-    content_assets::run(&config, &index)?;
+    // Copy static/ (theme, then site), then let co-located media overlay it on
+    // any path collision — most-local layer wins: colocated > site > theme.
     static_copy::run(&config)?;
+    content_assets::run(&config, &index)?;
     Ok(())
 }
