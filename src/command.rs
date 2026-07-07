@@ -2,6 +2,7 @@
 //! `run(...)` entrypoint that `lib.rs` wraps as the public API surface used
 //! by `main.rs`.
 
+pub mod atproto;
 pub mod clean;
 pub mod new;
 pub mod scaffold;

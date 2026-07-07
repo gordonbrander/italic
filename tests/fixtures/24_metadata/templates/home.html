@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head>
+<title>{{ page.title }} · {{ site.title }}</title>
+{{ page | meta_description(site=site) }}
+{{ page | canonical_link }}
+{{ page | open_graph(site=site, type="website") }}
+{{ page | twitter_card(site=site) }}
+{{ page | json_ld(site=site, type="website") }}
+{{ site | feed_links }}
+</head>
+<body>{{ page.content | safe }}</body>
+</html>

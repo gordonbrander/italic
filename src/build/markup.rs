@@ -55,6 +55,13 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
     // literal. `rendered` (post-Tera) is parsed directly; Raw/Yaml bodies pass
     // through untouched. `env.stem_index` is the frozen stem→candidate grouping
     // used by wikilink resolution.
+    // Retain the post-Tera Markdown (shortcodes expanded) for Markdown docs so
+    // the publish phase can emit the full body via the `at.markpub.markdown`
+    // content union — `doc.content` is about to be overwritten with HTML.
+    if doc.kind() == DocKind::Markdown {
+        doc.markdown = Some(rendered.clone());
+    }
+
     doc.content = match doc.kind() {
         DocKind::Markdown => {
             let arena = comrak::Arena::new();
@@ -188,6 +195,33 @@ mod tests {
         doc.uplift_frontmatter(&[]);
         render_doc(&mut doc);
         assert_eq!(doc.summary, "Hand-written blurb.");
+    }
+
+    #[test]
+    fn markdown_source_is_retained_for_publishing() {
+        let mut doc = Doc::new(
+            PathBuf::from("post.md"),
+            "# Hello\n\nThis is the body.".to_string(),
+            Mapping::new(),
+        );
+        render_doc(&mut doc);
+        let md = doc.markdown.expect("markdown source retained");
+        // Post-Tera Markdown, not HTML.
+        assert!(md.contains("# Hello"));
+        assert!(!md.contains('<'));
+        // `content` itself is the rendered HTML.
+        assert!(doc.content.contains("<h1>"));
+    }
+
+    #[test]
+    fn raw_doc_retains_no_markdown_source() {
+        let mut doc = Doc::new(
+            PathBuf::from("page.html"),
+            "<p>raw html body</p>".to_string(),
+            Mapping::new(),
+        );
+        render_doc(&mut doc);
+        assert_eq!(doc.markdown, None);
     }
 
     #[test]

@@ -8,6 +8,55 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Name of the always-present collection of every doc. When a site/theme does
+/// not declare its own `all` under `collections:`, [`Config::load_with_theme`]
+/// injects one with the default [`Query`] (every doc, date desc). It backs the
+/// `all()` template function (`src/tera_env/all.rs`). Mirrors the [`LINKS`]
+/// reserved-name pattern.
+pub const ALL: &str = "all";
+
+/// Which collection the auto-generated `sitemap.xml` archive covers, from the
+/// top-level `sitemap:` key. Three-state so "unspecified" (inherit a theme, then
+/// default to [`ALL`]) is distinct from "disabled". The default is applied in
+/// [`Config::load_with_theme`] — *not* in [`Config::default`] — so a struct-built
+/// `Config` injects no built-in archive. See `src/build/archive/builtin.rs`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Sitemap {
+    /// Key absent in this config layer.
+    #[default]
+    Unset,
+    /// `sitemap: null` (or an empty `sitemap:`): no sitemap.
+    Disabled,
+    /// `sitemap: <name>`: cover the named collection.
+    Collection(String),
+}
+
+/// Which collections get an auto-generated `/feed/<name>.xml` archive, from the
+/// top-level `feed:` key (one feed per name). Three-state like [`Sitemap`]: an
+/// empty `Collections` list means explicitly disabled, while `Unset` inherits a
+/// theme then defaults to `[ALL]` in [`Config::load_with_theme`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Feed {
+    /// Key absent in this config layer.
+    #[default]
+    Unset,
+    /// `feed: [a, b]`: one feed each. An empty list disables feeds.
+    Collections(Vec<String>),
+}
+
+impl Feed {
+    /// The collection names that get a `/feed/<name>.xml` archive, in config
+    /// order. `Unset` (no feeds resolved yet) and a disabled empty list both
+    /// yield an empty slice. Used by the `feed_links`/`metadata` template filters
+    /// (`src/tera_env/meta.rs`) to emit one `<link rel="alternate">` per feed.
+    pub fn names(&self) -> &[String] {
+        match self {
+            Feed::Unset => &[],
+            Feed::Collections(names) => names,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -74,6 +123,27 @@ pub struct Config {
     /// `tags` is declared). See [`Related`].
     #[serde(skip)]
     pub related: Related,
+    /// Collection the auto-generated `sitemap.xml` archive covers, from the
+    /// `sitemap:` key. [`Config::default`] leaves this [`Sitemap::Unset`] (no
+    /// built-in); [`load_with_theme`](Self::load_with_theme) resolves `Unset` to
+    /// `Collection(all)`. The archive phase injects a built-in sitemap only when
+    /// this is `Collection(..)` and no `archives/sitemap.xml` already exists.
+    #[serde(skip)]
+    pub sitemap: Sitemap,
+    /// Collections that get an auto-generated `/feed/<name>.xml` archive, from the
+    /// `feed:` key. `Unset` resolves to `[all]` in
+    /// [`load_with_theme`](Self::load_with_theme); an empty `Collections` list
+    /// disables feeds. Each name gets a built-in feed unless a disk archive at the
+    /// same path already exists.
+    #[serde(skip)]
+    pub feed: Feed,
+    /// Non-secret `atproto:` settings (PDS host, target collection, publication
+    /// metadata). `None` when the site declares no `atproto:` block
+    /// — the `atproto publish` command errors in that case. The account DID and app
+    /// password are read from the environment, never from here. See
+    /// [`crate::atproto::config`].
+    #[serde(skip)]
+    pub atproto: Option<crate::atproto::config::Atproto>,
 }
 
 impl Default for Config {
@@ -93,6 +163,9 @@ impl Default for Config {
             collections: Vec::new(),
             taxonomies: Vec::new(),
             related: Related::default(),
+            sitemap: Sitemap::default(),
+            feed: Feed::default(),
+            atproto: None,
         }
     }
 }
@@ -117,6 +190,13 @@ impl Config {
                 .with_context(|| format!("loading theme at {}", theme_dir.display()))?;
             config.apply_theme(&mut site, theme_config, theme_site);
         }
+        // Guarantee an `all` collection always exists so `all()` and sitemap/RSS
+        // templates have a canonical "every doc" listing. The default Query is
+        // every doc, date desc; a site or theme may declare its own `all` to
+        // reorder, omit, or filter (full override, kept by `merge_named` above).
+        if !config.collections.iter().any(|(n, _)| n == ALL) {
+            config.collections.push((ALL.to_string(), Query::default()));
+        }
         // Validate after merge: a site's `defaults:` may name a collection the
         // theme declares, so the check runs against the merged collection set.
         validate_defaults(&config.defaults, &config.collections)
@@ -125,6 +205,27 @@ impl Config {
         // set: equal weight on every declared taxonomy plus the `links` graph.
         if config.related.weights.is_empty() {
             config.related.weights = default_related_weights(&config.taxonomies);
+        }
+        // Resolve the auto-archive defaults now that the collection set is final:
+        // an unset `sitemap`/`feed` defaults to the always-present `all`
+        // collection (sitemap over `all`, a single `/feed/all.xml`). This default
+        // lives here, not in `Config::default`, so a struct-built `Config` injects
+        // no built-ins (keeps the archive-phase unit tests free of surprises).
+        if matches!(config.sitemap, Sitemap::Unset) {
+            config.sitemap = Sitemap::Collection(ALL.to_string());
+        }
+        if matches!(config.feed, Feed::Unset) {
+            config.feed = Feed::Collections(vec![ALL.to_string()]);
+        }
+        // Every collection named by `sitemap`/`feed` must be declared (a disabled
+        // sitemap or empty feed list names none), so typos fail loudly.
+        validate_auto_archives(&config.sitemap, &config.feed, &config.collections)
+            .with_context(|| format!("validating `sitemap`/`feed` in {}", path.display()))?;
+        // Every collection named by `atproto:` must be declared, like the
+        // sitemap/feed checks. `all` always exists, so the defaults validate.
+        if let Some(atproto) = &config.atproto {
+            validate_atproto(atproto, &config.collections)
+                .with_context(|| format!("validating `atproto` in {}", path.display()))?;
         }
         // Derive the URL fields once, from the final (possibly theme-merged) map.
         config.site_url = site
@@ -160,7 +261,16 @@ impl Config {
         }
         let mut config: Self = serde_yaml_ng::from_str(&source)
             .with_context(|| format!("parsing {} into Config", path.display()))?;
-        let (site, defaults_map, collections_map, taxonomies_map, related_map) = match raw {
+        let (
+            site,
+            defaults_map,
+            collections_map,
+            taxonomies_map,
+            related_map,
+            sitemap_v,
+            feed_v,
+            atproto_map,
+        ) = match raw {
             Value::Mapping(mut m) => {
                 let site = match m.remove(Value::String("site".into())) {
                     Some(Value::Mapping(s)) => s,
@@ -182,9 +292,32 @@ impl Config {
                     Some(Value::Mapping(r)) => Some(r),
                     _ => None,
                 };
-                (site, defaults, collections, taxonomies, related)
+                // `sitemap`/`feed` are kept as raw `Value`s (presence matters:
+                // a missing key stays `Unset` so it can inherit a theme, while
+                // a present-but-null `sitemap:` disables). `contains_key` lets
+                // us tell "absent" from "null".
+                let sitemap = m
+                    .contains_key(Value::String("sitemap".into()))
+                    .then(|| m.remove(Value::String("sitemap".into())).unwrap());
+                let feed = m
+                    .contains_key(Value::String("feed".into()))
+                    .then(|| m.remove(Value::String("feed".into())).unwrap());
+                let atproto = match m.remove(Value::String("atproto".into())) {
+                    Some(Value::Mapping(p)) => Some(p),
+                    _ => None,
+                };
+                (
+                    site,
+                    defaults,
+                    collections,
+                    taxonomies,
+                    related,
+                    sitemap,
+                    feed,
+                    atproto,
+                )
             }
-            _ => (Mapping::new(), None, None, None, None),
+            _ => (Mapping::new(), None, None, None, None, None, None, None),
         };
         if let Some(map) = collections_map {
             config.collections = parse_collections(&map)
@@ -200,6 +333,20 @@ impl Config {
         if let Some(map) = related_map {
             config.related = parse_related(&map)
                 .with_context(|| format!("parsing `related` in {}", path.display()))?;
+        }
+        if let Some(value) = sitemap_v {
+            config.sitemap = parse_sitemap(&value)
+                .with_context(|| format!("parsing `sitemap` in {}", path.display()))?;
+        }
+        if let Some(value) = feed_v {
+            config.feed = parse_feed(&value)
+                .with_context(|| format!("parsing `feed` in {}", path.display()))?;
+        }
+        if let Some(map) = atproto_map {
+            config.atproto = Some(
+                crate::atproto::config::parse_atproto(&map, ALL)
+                    .with_context(|| format!("parsing `atproto` in {}", path.display()))?,
+            );
         }
         Ok((config, site))
     }
@@ -235,6 +382,14 @@ impl Config {
         // later in `load_with_theme` from the merged taxonomy set.
         if self.related.weights.is_empty() {
             self.related.weights = theme.related.weights;
+        }
+        // `sitemap`/`feed`: inherit the theme's when the site is silent (mirrors
+        // `hashtags`). A site that sets either — including disabling it — wins.
+        if matches!(self.sitemap, Sitemap::Unset) {
+            self.sitemap = theme.sitemap;
+        }
+        if matches!(self.feed, Feed::Unset) {
+            self.feed = theme.feed;
         }
         // `site:` map: theme as base, site overrides (deep). The caller
         // (`load_with_theme`) derives `site_url`/`base_path` from the merged map.
@@ -475,6 +630,87 @@ fn validate_defaults(
     Ok(())
 }
 
+/// Parse the `sitemap:` value: a string names the collection to cover; a YAML
+/// null (`sitemap:`, `sitemap: null`, or `sitemap: ~`) disables it. Any other
+/// type is a loud error.
+fn parse_sitemap(value: &Value) -> Result<Sitemap> {
+    match value {
+        Value::Null => Ok(Sitemap::Disabled),
+        Value::String(s) => Ok(Sitemap::Collection(s.clone())),
+        _ => Err(anyhow::anyhow!(
+            "sitemap: must be a collection name, or null to disable"
+        )),
+    }
+}
+
+/// Parse the `feed:` value: a sequence of collection names (one feed each). An
+/// empty list disables feeds. A null disables too; any non-sequence (e.g. a bare
+/// string or `false`) is a loud error — feeds are always a list.
+fn parse_feed(value: &Value) -> Result<Feed> {
+    match value {
+        Value::Null => Ok(Feed::Collections(Vec::new())),
+        Value::Sequence(seq) => {
+            let mut names = Vec::with_capacity(seq.len());
+            for item in seq {
+                let name = item.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("feed: every entry must be a collection name (string)")
+                })?;
+                names.push(name.to_string());
+            }
+            Ok(Feed::Collections(names))
+        }
+        _ => Err(anyhow::anyhow!(
+            "feed: must be a list of collection names (use `[]` to disable)"
+        )),
+    }
+}
+
+/// Ensure every collection named by `sitemap`/`feed` is declared. Run after the
+/// theme merge and default resolution, like [`validate_defaults`]. `all` is always
+/// present, so the defaults validate trivially.
+fn validate_auto_archives(
+    sitemap: &Sitemap,
+    feed: &Feed,
+    collections: &[(String, Query)],
+) -> Result<()> {
+    let known = |name: &str| collections.iter().any(|(n, _)| n == name);
+    if let Sitemap::Collection(name) = sitemap
+        && !known(name)
+    {
+        return Err(anyhow::anyhow!(
+            "sitemap: `{}` does not name a collection (declare it under `collections:`)",
+            name
+        ));
+    }
+    if let Feed::Collections(names) = feed {
+        for name in names {
+            if !known(name) {
+                return Err(anyhow::anyhow!(
+                    "feed: `{}` does not name a collection (declare it under `collections:`)",
+                    name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Ensure the collection named by `atproto:` is declared. Run after the theme
+/// merge, like [`validate_auto_archives`].
+fn validate_atproto(
+    atproto: &crate::atproto::config::Atproto,
+    collections: &[(String, Query)],
+) -> Result<()> {
+    let known = |name: &str| collections.iter().any(|(n, _)| n == name);
+    if !known(&atproto.collection) {
+        return Err(anyhow::anyhow!(
+            "atproto: `{}` does not name a collection (declare it under `collections:`)",
+            atproto.collection
+        ));
+    }
+    Ok(())
+}
+
 fn normalize_site_url(s: &str) -> Option<String> {
     let trimmed = s.trim_end_matches('/');
     if trimmed.is_empty() {
@@ -651,7 +887,13 @@ mod tests {
             "collections:\n  posts:\n    path: \"posts/*.md\"\n  recent:\n    order_by: updated\n",
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
-        let names: Vec<&str> = config.collections.iter().map(|(n, _)| n.as_str()).collect();
+        // Filter out the always-injected `all` collection.
+        let names: Vec<&str> = config
+            .collections
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .filter(|n| *n != ALL)
+            .collect();
         // Order preserved from config.yaml.
         assert_eq!(names, vec!["posts", "recent"]);
         let posts = &config.collections[0].1;
@@ -759,10 +1001,70 @@ mod tests {
 
     #[test]
     fn collections_absent_yields_empty() {
+        // No `collections:` block declares no *named* collections — but a default
+        // `all` is always injected (see `default_all_collection_injected...`), so
+        // we assert there is no user collection rather than an empty list.
         let dir = tempdir("config");
         let path = write_config(&dir, "content_dir: foo\n");
         let (config, _) = Config::load_with_theme(&path).unwrap();
-        assert!(config.collections.is_empty());
+        let named: Vec<&str> = config
+            .collections
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .filter(|n| *n != ALL)
+            .collect();
+        assert!(named.is_empty());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn default_all_collection_injected_when_absent() {
+        use crate::query::{OrderKey, SortDir};
+        // With no `collections:` block, an `all` collection is injected with the
+        // default query (every doc, date desc) so `all()`/sitemaps have a
+        // canonical listing.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        let all = config
+            .collections
+            .iter()
+            .find(|(n, _)| n == ALL)
+            .map(|(_, q)| q)
+            .expect("an `all` collection should always exist");
+        assert!(all.path.is_none());
+        assert_eq!(all.order_by, OrderKey::Date);
+        assert_eq!(all.sort, SortDir::Desc);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn user_all_collection_overrides_default() {
+        use crate::query::OrderKey;
+        // A site-declared `all` wins; it is not duplicated by the injected default.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "collections:\n  all:\n    order_by: title\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        let alls: Vec<&Query> = config
+            .collections
+            .iter()
+            .filter(|(n, _)| n == ALL)
+            .map(|(_, q)| q)
+            .collect();
+        assert_eq!(alls.len(), 1, "no duplicate `all` collection");
+        assert_eq!(alls[0].order_by, OrderKey::Title);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn defaults_may_reference_all_without_declaring_collections() {
+        // `all` always exists, so `defaults:` may target it with no `collections:`
+        // block — which would otherwise be an unknown-collection error.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "defaults:\n  all:\n    template: base.html\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.defaults.len(), 1);
+        assert_eq!(config.defaults[0].0, "all");
         cleanup(&dir);
     }
 
@@ -902,7 +1204,13 @@ mod tests {
             ),
         );
         let (config, _) = Config::load_with_theme(&path).unwrap();
-        let names: Vec<&str> = config.collections.iter().map(|(n, _)| n.as_str()).collect();
+        // Filter out the always-injected `all` collection.
+        let names: Vec<&str> = config
+            .collections
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .filter(|n| *n != ALL)
+            .collect();
         // Theme order preserved; site override keeps the theme's slot.
         assert_eq!(names, vec!["posts", "news"]);
         // Site's `posts` query replaces the theme's by name; theme-only `news` kept.
@@ -977,6 +1285,161 @@ mod tests {
         );
         // site_url re-derived from the merged map (site wins, trailing slash trimmed).
         assert_eq!(config.site_url.as_deref(), Some("https://site.example"));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sitemap_and_feed_default_to_all() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.sitemap, Sitemap::Collection(ALL.to_string()));
+        assert_eq!(config.feed, Feed::Collections(vec![ALL.to_string()]));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn struct_default_leaves_sitemap_and_feed_unset() {
+        // `Config::default()` (used by struct-built configs and tests) must inject
+        // no built-ins — the `all` default is applied only in `load_with_theme`.
+        let config = Config::default();
+        assert_eq!(config.sitemap, Sitemap::Unset);
+        assert_eq!(config.feed, Feed::Unset);
+    }
+
+    #[test]
+    fn sitemap_null_disables() {
+        // A real YAML null in any of its spellings disables — no magic `none`
+        // string (which would parse as a collection name and fail validation).
+        for body in ["sitemap:\n", "sitemap: null\n", "sitemap: ~\n"] {
+            let dir = tempdir("config");
+            let path = write_config(&dir, body);
+            let (config, _) = Config::load_with_theme(&path).unwrap();
+            assert_eq!(config.sitemap, Sitemap::Disabled, "body: {body:?}");
+            cleanup(&dir);
+        }
+    }
+
+    #[test]
+    fn feed_empty_list_disables() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "feed: []\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.feed, Feed::Collections(Vec::new()));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sitemap_and_feed_name_declared_collections() {
+        let dir = tempdir("config");
+        let path = write_config(
+            &dir,
+            "collections:\n  posts:\n    path: \"posts/*.md\"\nsitemap: posts\nfeed:\n  - posts\n  - all\n",
+        );
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.sitemap, Sitemap::Collection("posts".to_string()));
+        assert_eq!(
+            config.feed,
+            Feed::Collections(vec!["posts".to_string(), "all".to_string()])
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sitemap_unknown_collection_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "sitemap: nope\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(err.contains("nope"), "error should mention the name: {err}");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn feed_unknown_collection_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "feed:\n  - nope\n");
+        assert!(Config::load_with_theme(&path).is_err());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn sitemap_non_string_errors() {
+        // `false` is not how you disable — null is. A bool fails loudly.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "sitemap: true\n");
+        assert!(Config::load_with_theme(&path).is_err());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn feed_non_list_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "feed: all\n");
+        assert!(Config::load_with_theme(&path).is_err());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn theme_sitemap_and_feed_inherited_when_site_silent() {
+        let dir = tempdir("config");
+        let theme = dir.join("theme");
+        write_config_in(
+            &theme,
+            "collections:\n  posts:\n    path: \"posts/*.md\"\nsitemap: posts\nfeed:\n  - posts\n",
+        );
+        let path = write_config(&dir, &format!("theme: {}\n", theme.display()));
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(config.sitemap, Sitemap::Collection("posts".to_string()));
+        assert_eq!(config.feed, Feed::Collections(vec!["posts".to_string()]));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn site_sitemap_and_feed_override_theme() {
+        let dir = tempdir("config");
+        let theme = dir.join("theme");
+        write_config_in(&theme, "sitemap: all\nfeed:\n  - all\n");
+        let path = write_config(
+            &dir,
+            &format!("theme: {}\nsitemap: null\nfeed: []\n", theme.display()),
+        );
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        // A site that disables wins over a theme that enabled.
+        assert_eq!(config.sitemap, Sitemap::Disabled);
+        assert_eq!(config.feed, Feed::Collections(Vec::new()));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn atproto_absent_yields_none() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "content_dir: foo\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert!(config.atproto.is_none());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn atproto_block_parsed_and_defaults_to_all_collection() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "atproto:\n  pds_host: https://pds.example\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        let atproto = config.atproto.expect("atproto block present");
+        assert_eq!(atproto.pds_host, "https://pds.example");
+        // Defaults to the always-present `all` collection, which validates.
+        assert_eq!(atproto.collection, ALL);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn atproto_unknown_collection_errors() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "atproto:\n  collection: nope\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(
+            err.contains("nope"),
+            "error should name the collection: {err}"
+        );
         cleanup(&dir);
     }
 

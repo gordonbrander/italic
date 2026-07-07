@@ -19,8 +19,10 @@ mod filter_by_id_path;
 mod filter_in_dir;
 mod macros;
 mod markdown;
+mod meta;
 mod omit_docs;
 mod related;
+mod safe_filter;
 mod taxonomy;
 mod text;
 mod url;
@@ -76,7 +78,9 @@ pub struct MarkupEnv {
 /// macros, the wikilink rewrite, and author inline HTML all rely on it — same
 /// trust model as the previous pulldown-cmark `html` feature). GFM extensions
 /// are on, plus the wikilink extension whose `[[url|label]]` order matches
-/// Italic's `[[Target|Display]]`.
+/// Italic's `[[Target|Display]]`, GitHub-style alert callouts
+/// (`> [!NOTE]`/`[!TIP]`/`[!IMPORTANT]`/`[!WARNING]`/`[!CAUTION]`), and
+/// inline/display/fenced math (`$...$`, `$$...$$`, ` ```math `).
 fn markup_options() -> comrak::Options<'static> {
     let mut options = comrak::Options::default();
     options.render.r#unsafe = true;
@@ -86,6 +90,9 @@ fn markup_options() -> comrak::Options<'static> {
     options.extension.tasklist = true;
     options.extension.footnotes = true;
     options.extension.autolink = true;
+    options.extension.alerts = true;
+    options.extension.math_dollars = true;
+    options.extension.math_code = true;
     options
 }
 
@@ -152,6 +159,14 @@ pub fn build_template_env(config: &Config, index: Arc<DocIndex>) -> Result<Tera>
     filter_in_dir::register(&mut env);
     omit_docs::register(&mut env);
     markdown::register(&mut env, markup_options(), SYNTECT.clone());
+    // Built-in `<head>` metadata filters (template phase only — they belong in
+    // layouts, not Markdown bodies). Feed names drive the RSS discovery `<link>`s.
+    meta::register(
+        &mut env,
+        config.site_url.clone(),
+        config.base_path.clone(),
+        config.feed.names().to_vec(),
+    );
     Ok(env)
 }
 
@@ -212,6 +227,7 @@ fn rel_template_name(rel: &std::path::Path) -> String {
 mod tests {
     use super::*;
     use crate::doc::Doc;
+    use crate::query::Query;
     use std::path::PathBuf;
 
     fn cfg_without_templates() -> Config {
@@ -281,6 +297,33 @@ mod tests {
     }
 
     #[test]
+    fn markup_env_does_not_register_metadata_filters() {
+        // `<head>` metadata filters belong to the template phase only; the markup
+        // (Markdown body) env must not expose them.
+        let mut env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
+        let ctx = tera::Context::new();
+        assert!(
+            env.tera
+                .render_str("{{ page | metadata(site=site) }}", &ctx)
+                .is_err()
+        );
+        assert!(
+            env.tera
+                .render_str("{{ site | feed_links }}", &ctx)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn template_env_registers_metadata_filter() {
+        let mut env = build_template_env(&cfg_without_templates(), empty_snapshot()).unwrap();
+        let mut ctx = tera::Context::new();
+        ctx.insert("site", &serde_json::json!({ "title": "S" }));
+        // `feed_links` over no configured feeds renders empty without erroring.
+        assert_eq!(env.render_str("{{ site | feed_links }}", &ctx).unwrap(), "");
+    }
+
+    #[test]
     fn missing_templates_dir_is_not_an_error() {
         // Fixtures 01 and 02 have no templates/ dir; the env must still build.
         let env = build_markup_env(&cfg_without_templates(), empty_meta_snapshot()).unwrap();
@@ -312,20 +355,24 @@ mod tests {
     }
 
     #[test]
-    fn all_lists_every_doc_in_id_path_order() {
+    fn all_lists_the_all_collection_in_date_desc_order() {
+        // `all()` is backed by the always-present `all` collection. With the
+        // default query (date desc) it lists every doc newest-first — distinct
+        // from the index's natural id_path order, which would be
+        // `pages/c.md posts/a.md posts/b.md`.
         let mut idx = DocIndex::new();
-        idx.insert(one_doc_at("posts/b.md"));
-        idx.insert(one_doc_at("posts/a.md"));
-        idx.insert(one_doc_at("pages/c.md"));
+        idx.insert(one_doc_dated("posts/b.md", "2025-03-01")); // newest
+        idx.insert(one_doc_dated("posts/a.md", "2025-01-01")); // oldest
+        idx.insert(one_doc_dated("pages/c.md", "2025-02-01"));
+        idx.define_collection(crate::config::ALL, &Query::default());
         let mut env = build_template_env(&cfg_without_templates(), Arc::new(idx)).unwrap();
-        // `all()` takes no arguments; order is the index's natural id_path order.
         let out = env
             .render_str(
                 "{% for d in all() %}{{ d.id_path }} {% endfor %}",
                 &tera::Context::new(),
             )
             .unwrap();
-        assert_eq!(out, "pages/c.md posts/a.md posts/b.md ");
+        assert_eq!(out, "posts/b.md pages/c.md posts/a.md ");
     }
 
     #[test]
@@ -439,11 +486,18 @@ mod tests {
         assert!(env.tera.render_str("{{ 'a.md' | related }}", &ctx).is_err());
     }
 
-    /// A minimal doc at `id_path`, for the `all()` listing test.
-    fn one_doc_at(id_path: &str) -> Doc {
+    /// A minimal doc at `id_path` dated `yyyy-mm-dd`, for the `all()` listing
+    /// test (which orders by date desc).
+    fn one_doc_dated(id_path: &str, date: &str) -> Doc {
+        let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
         Doc {
             id_path: PathBuf::from(id_path),
             output_path: PathBuf::from(id_path).with_extension("html"),
+            date,
             ..Default::default()
         }
     }

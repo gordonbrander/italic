@@ -1,3 +1,4 @@
+pub mod atproto;
 pub mod backlinks;
 pub mod build;
 pub mod command;
@@ -42,4 +43,16 @@ pub fn clean() -> Result<()> {
 
 pub fn build(include_drafts: bool) -> Result<()> {
     build::run(include_drafts)
+}
+
+pub fn atproto_publish(options: atproto::Options) -> Result<()> {
+    command::atproto::publish::run(options)
+}
+
+pub fn atproto_status() -> Result<()> {
+    command::atproto::status::run()
+}
+
+pub fn atproto_did(handle: &str) -> Result<()> {
+    command::atproto::did::run(handle)
 }

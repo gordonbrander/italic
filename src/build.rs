@@ -39,11 +39,14 @@ pub mod content_assets;
 pub mod defaults;
 pub mod markup;
 pub mod read;
+pub mod standard_link;
 pub mod static_copy;
 pub mod template;
+pub mod well_known;
 pub mod write;
 
 use crate::config::Config;
+use crate::doc_index::DocIndex;
 use crate::site_data::SiteData;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -58,7 +61,13 @@ pub struct Output {
     pub id_path: PathBuf,
 }
 
-pub fn run(include_drafts: bool) -> Result<()> {
+/// Run the pipeline up to the freeze point: load config + site data, read
+/// `content/`, classify collections, fill defaults, render markup, classify
+/// taxonomies and backlinks, and freeze the index into an `Arc`. This is the
+/// portion shared by `build` (which goes on to render and write output) and
+/// `atproto` (which reads the frozen index to sync records to a PDS, never
+/// writing HTML). Stops before archives/templates/write — see [`run`].
+pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocIndex>)> {
     let (config, site) = Config::load_with_theme(Path::new("config.yaml"))?;
     let site_data = SiteData::load(&config, site)?;
     let mut index = read::run(&config, include_drafts)?;
@@ -72,7 +81,16 @@ pub fn run(include_drafts: bool) -> Result<()> {
     // once and share it by `Arc`.
     classify::taxonomies(&config, &mut index);
     classify::backlinks(&mut index);
-    let index = Arc::new(index);
+    // Derive published docs' AT-URIs (for the standard.site `<link>` proof) before
+    // the index freezes. Gated on `atproto.verification`; a no-op without the
+    // `ITALIC_ATPROTO_DID` + `site.url` derivation inputs.
+    let did = crate::atproto::client::env_did()?;
+    standard_link::run(&config, did.as_deref(), &mut index)?;
+    Ok((config, site_data, Arc::new(index)))
+}
+
+pub fn run(include_drafts: bool) -> Result<()> {
+    let (config, site_data, index) = build_index(include_drafts)?;
     // Archives read the frozen index and emit view pages (not classified).
     let archive_docs = archive::run(&config, &site_data, &index)?;
     // Render source docs (read-only) + archive pages into output. Alias redirect
@@ -80,6 +98,10 @@ pub fn run(include_drafts: bool) -> Result<()> {
     // (write::run is first-writer-wins).
     let mut outputs = template::run(&config, &site_data, &index, archive_docs)?;
     outputs.extend(alias::run(&config, &index)?);
+    // The standard.site publication proof (.well-known), gated on
+    // `atproto.verification` + the `ITALIC_ATPROTO_DID`/`site.url` inputs.
+    let did = crate::atproto::client::env_did()?;
+    outputs.extend(well_known::run(&config, did.as_deref())?);
     write::run(&config, &outputs)?;
     // Mirror co-located media, then let static/ overlay it on any path collision.
     content_assets::run(&config, &index)?;

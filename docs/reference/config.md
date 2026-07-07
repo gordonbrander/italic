@@ -27,6 +27,10 @@ taxonomies: []    # declared taxonomy field names
 defaults: {}      # per-collection default frontmatter
 # related:        # weights for the related filter; defaults derived (see below)
 #   weights: {}
+
+sitemap: all      # collection the auto sitemap covers; null to disable
+feed:             # one /feed/<name>.xml per collection; `[]` to disable
+  - all
 ```
 
 ## Directories
@@ -115,6 +119,15 @@ Unknown query keys are an error (typos fail loudly). There is no `limit` key —
 capping is a render-time concern; pass `limit=` to the `collection()` function
 or set `limit:` on an archive.
 
+### The `all` collection
+
+A collection named `all` always exists. If you don't declare one, the build
+injects it with the default query (every doc, date descending). It backs the
+`all()` function and is also readable as `collection(name="all")` — handy for a
+`sitemap.xml` or full archive. Declare your own `all` under `collections:` to
+change its order or contents (a `path`/`omit` may narrow it below every doc); a
+site `all` overrides a theme's, like any other collection.
+
 ## `taxonomies`
 
 An array of frontmatter field names to treat as taxonomies. There are no
@@ -168,6 +181,80 @@ inherited; if your site sets any weights, they win wholesale.
 
 See the [Related pages guide](../guides/related.md).
 
+## `sitemap`
+
+The collection the auto-generated `sitemap.xml` covers. Defaults to the
+always-present [`all` collection](#the-all-collection), so a zero-config site
+still gets a complete sitemap at `/sitemap.xml`. Name another collection to scope
+it, or set it to null (an empty `sitemap:`) to disable.
+
+```yaml
+sitemap: all     # default — every doc
+# sitemap: posts # only the `posts` collection
+# sitemap:       # null — no sitemap
+```
+
+To customize the markup, add your own `archives/sitemap.xml` — a disk archive of
+that name shadows the built-in (the built-in is a lowest overlay layer). The
+named collection must be declared under `collections:`, or the build fails.
+
+## `feed`
+
+A list of collections, each getting an RSS feed at `/feed/<name>.xml`. Defaults
+to `[all]` (a single `/feed/all.xml` over every doc). Use an empty list to
+disable feeds entirely.
+
+```yaml
+feed:
+  - all          # /feed/all.xml
+  - posts        # /feed/posts.xml
+# feed: []       # no feeds
+```
+
+Override any feed's markup with a disk archive at the matching path (e.g.
+`archives/feed/posts.xml`). Every listed collection must be declared under
+`collections:`. Feeds cap at the 25 most recent items per the collection's own
+order.
+
+## `atproto`
+
+Non-secret settings for `italic atproto publish`, which syncs your site to an ATProto
+PDS as [standard.site](https://standard.site/) documents. Absent by default —
+without an `atproto:` block, `italic atproto publish`
+errors. **Your identity and secrets never go here**: the account DID comes from
+the environment (`ITALIC_ATPROTO_DID` — look it up with
+`italic atproto did <handle>`), and so does your app password
+(`ITALIC_ATPROTO_APP_PASSWORD`). Unknown keys (in the block or its sub-maps)
+are an error. See the
+[Publishing guide](../guides/publishing-atproto.md).
+
+```yaml
+atproto:
+  pds_host: https://bsky.social   # optional
+  collection: posts               # which collection becomes documents
+  verification: true              # emit the .well-known + <link> proofs
+  publication:
+    name: My Garden               # required to publish the publication record
+    url: https://example.com      # required — where your HTML actually lives
+    description: A digital garden.
+    icon: static/icon.png         # uploaded as a blob
+```
+
+Top-level keys:
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `pds_host` | string | `https://bsky.social` | PDS XRPC host. Overridden by `ITALIC_ATPROTO_PDS_HOST`. |
+| `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
+| `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). Needs `ITALIC_ATPROTO_DID` and `site.url` — the derivation inputs. |
+| `publication` | mapping | — | The `site.standard.publication` record metadata. |
+
+`publication` keys: `name` and `url` (both required to publish), `description`,
+and `icon` (a path uploaded as a blob).
+
+The env-var resolution is covered in the
+[Publishing guide](../guides/publishing-atproto.md).
+
 ## Theme config merging
 
 When `theme:` is set, the theme's own `config.yaml` is loaded and layered
@@ -180,6 +267,8 @@ beneath yours:
 - `site:` is deep-merged, your values winning per key.
 - `hashtags` is on if either side enables it.
 - `related.weights`: yours win wholesale if set, otherwise the theme's.
+- `sitemap` and `feed`: yours win if set (including disabling), otherwise the
+  theme's; if neither sets them, they default to the `all` collection.
 - The theme's `*_dir` keys are ignored — a theme always uses its conventional
   `templates/`, `archives/`, `static/` subdirs.
 - `content_dir`, `output_dir`, and `data_dir` are always yours; a theme never

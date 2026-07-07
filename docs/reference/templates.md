@@ -91,9 +91,13 @@ with `{% if %}`:
 
 ### `all()` — list every doc
 
-**Template phase.** Returns every document on the site in `id_path` order, with
-no `config.yaml` setup. Takes **no arguments** — passing any is an error rather
-than a silent no-op. To order, limit, or filter, define a collection or pipe
+**Template phase.** Returns the always-present `all` collection — every document
+on the site, by default in date-descending (newest-first) order, with no
+`config.yaml` setup. It is backed by a collection named `all` that the build
+injects automatically; declaring `collections: { all: ... }` in `config.yaml`
+lets you reorder, omit, or filter what `all()` (and `collection(name="all")`)
+returns. Takes **no arguments** — passing any is an error rather than a silent
+no-op. To order, limit, or filter ad hoc, redefine the `all` collection or pipe
 through array filters (`omit_docs`, `dirtree`, Tera's `slice`).
 
 ```jinja
@@ -306,6 +310,43 @@ that produce absolute URLs degrade gracefully to root-relative.
 <a href="{{ post.id_path | permalink }}">{{ post.title }}</a>
 <link rel="stylesheet" href="{{ "css/style.css" | relative_url }}">
 ```
+
+### Metadata filters
+
+**Template phase only.** Built-in helpers that emit `<head>` metadata —
+SEO tags, Open Graph / Twitter social cards, JSON-LD, and RSS discovery — from
+`page` and `site` so themes don't re-derive the same boilerplate. All are *safe*
+(their markup is not autoescaped), and all degrade gracefully when `site.url` or
+a given field is absent.
+
+| Filter | Pipe | Emits |
+|--------|------|-------|
+| `metadata` | `page` | The umbrella: charset, viewport, generator, `<title>`, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links — a complete `<head>` in one call. |
+| `system_meta` | `page` | Italic/system-controlled tags. Today the generator tag (`<meta name="generator" content="italic <version>">`); the home for future engine-owned `<head>` metadata. |
+| `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
+| `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |
+| `canonical_link` | `page` | `<link rel="canonical">`. |
+| `standard_link` | `page` | `<link rel="site.standard.document">` from `page.data.atproto_uri` — the standard.site per-page proof; empty unless [`ITALIC_ATPROTO_DID`](../guides/publishing-atproto.md#verification-artifacts) is set. |
+| `open_graph` | `page` | `og:*` (and `article:*` when `type="article"`, the default). |
+| `twitter_card` | `page` | `twitter:*` (`summary_large_image` when an image exists). |
+| `json_ld` | `page` | `<script type="application/ld+json">` (`BlogPosting`, or `WebSite` for `type="website"`). |
+| `feed_links` | `site` | One `<link rel="alternate">` per configured `feed:`. |
+
+All take `site=site` as a kwarg (except `meta_keywords`, `standard_link`, and
+`feed_links`);
+`open_graph`/`twitter_card`/`json_ld`/`metadata` accept `type=` (default
+`"article"`; pass `type="website"` on non-article pages like the home page).
+
+```jinja
+<head>
+  {{ page | metadata(site=site) }}
+</head>
+```
+
+Conventions: social image from `page.data.image` (alt `page.data.image_alt`),
+falling back to `site.image`; Twitter handle from `site.twitter`; locale from
+`site.locale` (default `en_US`); author from `page.data.author`, else
+`site.author`. See the [Metadata guide](../guides/metadata.md).
 
 ## Macros
 
