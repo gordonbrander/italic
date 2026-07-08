@@ -52,6 +52,15 @@ build` to update your site; run `italic atproto publish` to update the PDS.
    export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
    ```
 
+   Rather than exporting these every session, you can put them in a gitignored
+   `.env` file in your project root, which italic loads automatically:
+
+   ```sh
+   # .env  (gitignored — never commit your app password)
+   ITALIC_ATPROTO_DID=did:plc:abc123…
+   ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+   ```
+
 4. **Set your site metadata** in `config.yaml` — the publication record derives
    from it (`site.title` → name, `site.url` + `site.base_path` → url,
    `site.description` → description), so there is nothing atproto-specific to
@@ -110,6 +119,11 @@ command, or set them in your CI secrets):
 export ITALIC_ATPROTO_DID=did:plc:abc123…
 export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
+
+italic also loads a `.env` file from the project root automatically (it is
+gitignored by default), so you can keep these there instead of exporting them
+each session. A value exported in the shell takes precedence over the `.env`
+file.
 
 ## No local state
 

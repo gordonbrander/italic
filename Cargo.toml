@@ -23,6 +23,7 @@ exclude = [
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
 walkdir = "2"
 comrak = { version = "0.52", features = ["syntect"] }
 serde = { version = "1", features = ["derive"] }
