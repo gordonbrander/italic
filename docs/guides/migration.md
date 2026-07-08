@@ -30,14 +30,6 @@ note *transclusion* — `![[Some Note]]` embeds a media file, but it won't inlin
 another note's rendered body. Start with the
 [tutorial](../getting-started/tutorial.md), which walks this exact path.
 
-> [!WARNING]
-> Obsidian's `aliases:` frontmatter (alternate titles, so other notes'
-> `[[Old Name]]` wikilinks resolve to this note) is currently **ignored** —
-> wikilinks that rely on an alias to resolve will render as unresolved. The
-> key is harmless to leave in place, but rename any such links (or the notes)
-> so they match by filename. Italic's URL-redirect feature uses the separate
-> [`redirect_from:`](redirects.md) key, so the two never collide.
-
 ## From Jekyll
 
 | Jekyll | Italic |
