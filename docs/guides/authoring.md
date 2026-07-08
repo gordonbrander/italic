@@ -67,6 +67,41 @@ Within this content phase a template sees only site data and the page it's
 rendering in — not other pages. See [Macros](macros.md) and
 [the build pipeline](../concepts/build-pipeline.md#consequences-worth-knowing).
 
+## Co-located media (images and attachments)
+
+Keep images and other media under `content/`, next to the notes that use them
+(or in a shared folder) — no need to move them into `static/`. Any file that
+isn't a content type (`.md`/`.html`/`.yaml`) is treated as a co-located asset:
+it's copied to the matching path in the output, and references to it are
+rewritten to point there.
+
+Three reference styles resolve:
+
+| Syntax | Example | Resolves by | Renders |
+|--------|---------|-------------|---------|
+| Markdown image | `![caption](diagram.png)` | path relative to the note | `<img>` |
+| Markdown link | `[the report](report.pdf)` | path relative to the note | `<a>` |
+| Embed | `![[diagram.png]]` | filename across the vault | `<img>` (or `<a>` for non-images) |
+| Attachment link | `[[report.pdf]]` | filename across the vault | `<a>` |
+
+```text
+content/
+  blog/
+    trip.md          ← references diagram.png and report.pdf
+    diagram.png
+    report.pdf
+```
+
+The rewritten URLs are root-relative, so they stay correct no matter where the
+referencing page lands — including notes with a relocating `permalink:` like
+`/blog/trip/`.
+
+What's left untouched: external URLs (`https:`, `mailto:`, …), already-absolute
+paths (`/img.png`), and relative references that don't match any co-located
+file (so a hand-placed `static/` asset you reference by URL keeps working).
+Embed syntax resolves *media files only* — `![[Another Note]]` does not inline
+another note's body.
+
 ## See also
 
 - [Frontmatter reference](../reference/frontmatter.md)

@@ -97,7 +97,7 @@ pub fn resolve_in_ast<'a>(
 /// display label. For the common plain-text label this is exactly the authored
 /// text; any inline markup or raw HTML in a label degrades to its text content
 /// (and raw HTML is dropped), which keeps the rendered anchor safe.
-fn node_text<'a>(node: &'a AstNode<'a>) -> String {
+pub(super) fn node_text<'a>(node: &'a AstNode<'a>) -> String {
     let mut s = String::new();
     for child in node.descendants().skip(1) {
         if let NodeValue::Text(ref t) = child.data.borrow().value {
@@ -124,7 +124,7 @@ fn render_nolink(display: &str) -> String {
 /// `"Hello"`              → `(None, "Hello")`.
 /// A leading `/` survives in the prefix as the empty string, which causes
 /// `prefix_matches` to require a root-level candidate.
-fn split_prefix_stem(target: &str) -> (Option<&str>, &str) {
+pub(super) fn split_prefix_stem(target: &str) -> (Option<&str>, &str) {
     match target.rfind('/') {
         Some(idx) => (Some(&target[..idx]), &target[idx + 1..]),
         None => (None, target),
@@ -134,7 +134,7 @@ fn split_prefix_stem(target: &str) -> (Option<&str>, &str) {
 /// Edge count between two directory paths in the tree: drop the longest
 /// shared component prefix, sum the lengths of what remains on each side.
 /// `("blog/2025", "reference")` → 3 (up 2, down 1).
-fn dir_distance(a: &Path, b: &Path) -> usize {
+pub(super) fn dir_distance(a: &Path, b: &Path) -> usize {
     let ac: Vec<Component> = a.components().collect();
     let bc: Vec<Component> = b.components().collect();
     let common = ac.iter().zip(bc.iter()).take_while(|(x, y)| x == y).count();
@@ -144,7 +144,7 @@ fn dir_distance(a: &Path, b: &Path) -> usize {
 /// True iff `parent`'s normalized components — slugified individually —
 /// equal `prefix`'s slash-separated components, also slugified. Empty
 /// segments (e.g. from a leading `/`) are ignored on the prefix side.
-fn prefix_matches(parent: &Path, prefix: &str) -> bool {
+pub(super) fn prefix_matches(parent: &Path, prefix: &str) -> bool {
     let prefix_slugs: Vec<String> = prefix
         .split('/')
         .filter(|s| !s.is_empty())

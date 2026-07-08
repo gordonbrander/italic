@@ -11,12 +11,23 @@ The happy path — italic is built for this. Copy (or symlink) your vault into
 - `[[Wikilinks]]` and `[[Wikilinks|aliases]]` resolve with the same fuzzy
   matching algorithm Obsidian uses; backlinks come for free.
 - Inline `#hashtags` lift into the `tags` taxonomy with `hashtags: true`.
+- **Attachments kept beside your notes just work.** Drop images and other media
+  anywhere under `content/` — next to the note that uses them, or in a shared
+  `attachments/` folder — and reference them however you do in Obsidian:
+  - a standard image, `![caption](diagram.png)`, resolved relative to the note;
+  - an embed, `![[diagram.png]]`, matched by filename across the vault;
+  - an attachment link, `[[report.pdf]]`.
+
+  Each resolves to the file's published location, so references stay correct
+  even for notes with a custom `permalink:`. See
+  [co-located media](authoring.md#co-located-media-images-and-attachments).
 - Notes without frontmatter are fine — `title` defaults to empty (set it, or
   derive headings from your H1s in the layout), dates fall back to file
   timestamps.
 
 What doesn't carry over: Obsidian plugins, dataview queries, canvas files, and
-embeds (`![[...]]`). Start with the
+note *transclusion* — `![[Some Note]]` embeds a media file, but it won't inline
+another note's rendered body. Start with the
 [tutorial](../getting-started/tutorial.md), which walks this exact path.
 
 ## From Jekyll

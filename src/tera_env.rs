@@ -27,6 +27,7 @@ mod taxonomy;
 mod text;
 mod url;
 
+use crate::build::markup::media::AssetIndex;
 use crate::build::markup::wikilink::build_stem_index;
 use crate::config::{self, Config};
 use crate::doc::DocMeta;
@@ -61,6 +62,13 @@ pub struct MarkupEnv {
     /// Slugified file-stem → candidate docs, built once from the snapshot so
     /// wikilink resolution is a hash lookup rather than a full scan per link.
     pub stem_index: HashMap<String, Vec<DocMeta>>,
+    /// Co-located media lookup for the media-resolution pass. Empty by default
+    /// (so callers that don't set it — e.g. tests — get a no-op); `markup::run`
+    /// fills it from the index's asset list before cloning the env per worker.
+    pub asset_index: AssetIndex,
+    /// Mirror of `Config::base_path`: prepended to rewritten asset URLs so they
+    /// resolve under a sub-path deployment.
+    pub base_path: String,
     /// Mirror of `Config::hashtags`: when true, `markup::render` runs the
     /// inline `#hashtag` extraction pass.
     pub hashtags: bool,
@@ -117,6 +125,8 @@ pub fn build_markup_env(config: &Config, docs: Arc<Vec<DocMeta>>) -> Result<Mark
         options,
         syntect: SYNTECT.clone(),
         stem_index,
+        asset_index: AssetIndex::default(),
+        base_path: config.base_path.clone(),
         hashtags: config.hashtags,
     })
 }

@@ -21,7 +21,10 @@
 //!    entry, appended to the outputs (generated, never classified).
 //! 9. [`write`] — write the outputs to `output_dir`, skipping path collisions
 //!    first-writer-wins (so a real page is never clobbered by an alias stub).
-//! 10. [`static_copy`] — copy `static/` over the top.
+//! 10. [`content_assets`] — mirror co-located media (images/PDFs sitting next to
+//!     notes) from `content/` into `output_dir`.
+//! 11. [`static_copy`] — copy `static/` over the top (overlays content assets on
+//!     a path collision).
 //!
 //! Collections are pure frontmatter metadata, so they classify before markup;
 //! taxonomies depend on the markup-phase hashtag pass, so they classify after.
@@ -32,6 +35,7 @@
 pub mod alias;
 pub mod archive;
 pub mod classify;
+pub mod content_assets;
 pub mod defaults;
 pub mod markup;
 pub mod read;
@@ -99,6 +103,9 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let did = crate::atproto::client::env_did()?;
     outputs.extend(well_known::run(&config, did.as_deref())?);
     write::run(&config, &outputs)?;
+    // Copy static/ (theme, then site), then let co-located media overlay it on
+    // any path collision — most-local layer wins: colocated > site > theme.
     static_copy::run(&config)?;
+    content_assets::run(&config, &index)?;
     Ok(())
 }
