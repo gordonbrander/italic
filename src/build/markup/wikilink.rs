@@ -70,37 +70,59 @@ pub fn resolve_in_ast<'a>(
             NodeValue::WikiLink(w) => w.url.clone(),
             _ => continue,
         };
-        let display = node_text(node);
-
-        // Split off a `#heading` fragment before resolving, so the note lookup
-        // key stays clean (`note`, not `note-heading`). The fragment is
-        // slugified with the same canonical slugifier comrak's heading ids use.
-        let (link_target, fragment) = split_target_fragment(&raw);
-
-        let replacement = match resolve(link_target, &source.id_path, stem_index) {
-            Some(doc) => {
-                let mut url = permalink::to_url(&doc.output_path);
-                if let Some(frag) = fragment.filter(|f| !f.is_empty()) {
-                    url.push('#');
-                    url.push_str(&slug::slugify(frag));
-                }
-                if !links.contains(&doc.id_path) {
-                    links.push(doc.id_path.clone());
-                }
-                render_link(&url, &display)
-            }
-            None => render_nolink(&display),
-        };
-
-        // Collapse the node into a single raw-HTML inline, discarding the
-        // parsed label children (their text is already baked into `display`).
-        for child in node.children().collect::<Vec<_>>() {
-            child.detach();
+        let (html, resolved) = resolve_link(&raw, &node_text(node), &source.id_path, stem_index);
+        if let Some(id) = resolved.filter(|id| !links.contains(id)) {
+            links.push(id);
         }
-        node.data.borrow_mut().value = NodeValue::HtmlInline(replacement);
+        replace_node_html(node, html);
     }
 
     links
+}
+
+/// Resolve one wikilink target to its replacement HTML, plus the resolved doc's
+/// `id_path` (for the caller's backlink list) when it matched.
+///
+/// A `#heading` fragment is split off *before* resolving so the note lookup key
+/// stays clean (`note`, not `note-heading`), then re-attached to the href. A
+/// resolved target yields `<a class="wikilink">`; an unresolved one yields
+/// `<span class="nolink">` and no id_path.
+fn resolve_link(
+    raw: &str,
+    display: &str,
+    source_id_path: &Path,
+    stem_index: &HashMap<String, Vec<DocMeta>>,
+) -> (String, Option<PathBuf>) {
+    let (link_target, fragment) = split_target_fragment(raw);
+    match resolve(link_target, source_id_path, stem_index) {
+        Some(doc) => (
+            render_link(&link_url(&doc.output_path, fragment), display),
+            Some(doc.id_path.clone()),
+        ),
+        None => (render_nolink(display), None),
+    }
+}
+
+/// Build a resolved wikilink's href: the doc's URL, with a slugified `#heading`
+/// fragment appended when the target carried one. The fragment uses the same
+/// canonical slugifier comrak's heading ids use, so it matches the emitted `id`.
+fn link_url(output_path: &Path, fragment: Option<&str>) -> String {
+    let mut url = permalink::to_url(output_path);
+    if let Some(frag) = fragment.filter(|f| !f.is_empty()) {
+        url.push('#');
+        url.push_str(&slug::slugify(frag));
+    }
+    url
+}
+
+/// Collapse a `WikiLink` node into a single raw-HTML inline, discarding its
+/// parsed label children (their text is already baked into `html`). Rendered
+/// verbatim because the markup env sets `render.unsafe_`.
+fn replace_node_html<'a>(node: &'a AstNode<'a>, html: String) {
+    for child in node.children().collect::<Vec<_>>() {
+        child.detach();
+    }
+    node.data.borrow_mut().value = NodeValue::HtmlInline(html);
 }
 
 /// Concatenate the text of a node's descendant `Text` nodes — the wikilink's
