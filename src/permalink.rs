@@ -1,3 +1,4 @@
+use crate::slug;
 use chrono::{DateTime, Datelike, Utc};
 use std::path::{Component, Path, PathBuf};
 
