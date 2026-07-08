@@ -270,27 +270,27 @@ fn collection_self_exclude() {
 }
 
 #[test]
-fn aliases() {
-    run_build("21_aliases");
+fn redirects() {
+    run_build("21_redirects");
 }
 
 #[test]
-fn alias_collision() {
+fn redirect_collision() {
     // Two collisions in one build, exercising both arms of write::run's
     // first-writer-wins handling:
-    //  - /collide/ : a real page (real.md) vs an alias stub (aliaser.md). The
-    //    real page must always win — alias stubs are appended after every real
-    //    page, so this is deterministic regardless of doc iteration order.
-    //  - /shared/  : two alias stubs (a-note.md -> /a/, b-note.md -> /b/). Both
-    //    are aliases, so the winner is arbitrary (iteration order is
+    //  - /collide/ : a real page (real.md) vs a redirect stub (redirector.md).
+    //    The real page must always win — redirect stubs are appended after every
+    //    real page, so this is deterministic regardless of doc iteration order.
+    //  - /shared/  : two redirect stubs (a-note.md -> /a/, b-note.md -> /b/).
+    //    Both are redirects, so the winner is arbitrary (iteration order is
     //    unspecified). Either stub is valid; we require only that exactly one is
     //    written. This is asserted bespoke rather than against `expected/`
     //    precisely because the winner is intentionally nondeterministic.
-    let temp_root = build_fixture("22_alias_collision");
+    let temp_root = build_fixture("22_redirect_collision");
     let public = temp_root.join("public");
     let read = |rel: &str| fs::read_to_string(public.join(rel)).unwrap();
 
-    // The real page wins /collide/ — not the alias stub (which would carry a
+    // The real page wins /collide/ — not the redirect stub (which would carry a
     // redirect <meta refresh>).
     let collide = read("collide/index.html");
     assert!(
@@ -301,15 +301,15 @@ fn alias_collision() {
     // The non-colliding real pages are all present.
     assert!(public.join("a/index.html").exists());
     assert!(public.join("b/index.html").exists());
-    assert!(public.join("aliaser/index.html").exists());
+    assert!(public.join("redirector/index.html").exists());
 
-    // /shared/ resolves to exactly one of the two valid alias stubs.
+    // /shared/ resolves to exactly one of the two valid redirect stubs.
     let shared = read("shared/index.html");
     let to_a = shared.contains("url=/a/");
     let to_b = shared.contains("url=/b/");
     assert!(
         to_a ^ to_b,
-        "/shared/ must be exactly one of the two alias stubs, got: {shared}"
+        "/shared/ must be exactly one of the two redirect stubs, got: {shared}"
     );
 
     let _ = fs::remove_dir_all(&temp_root);

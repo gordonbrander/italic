@@ -1,7 +1,7 @@
 ---
 title: Moved Note
 permalink: /notes/moved/
-aliases:
+redirect_from:
   - /old/
   - /legacy.html
 ---

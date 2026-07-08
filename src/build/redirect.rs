@@ -1,13 +1,13 @@
-//! Alias redirect stubs. For every `aliases:` entry on a doc, emit a tiny HTML
+//! Redirect stubs. For every `redirect_from:` entry on a doc, emit a tiny HTML
 //! page at the old URL that redirects to the doc's canonical URL — the static
-//! equivalent of a 301, mirroring Hugo's `aliases:`. Lets a garden reorganize
-//! freely without 404-ing links the outside world already holds.
+//! equivalent of a 301, mirroring Jekyll/11ty's `redirect_from`. Lets a garden
+//! reorganize freely without 404-ing links the outside world already holds.
 //!
 //! This stage is deliberately self-contained: the stub is a fixed built-in (no
 //! user/theme override), so it needs no Tera env, and it does **no** collision
 //! handling — that is centralized in [`write::run`](super::write::run), which is
 //! first-writer-wins. Because the pipeline appends these stubs after every real
-//! page, an alias can never clobber a real page or an archive page.
+//! page, a redirect can never clobber a real page or an archive page.
 
 use crate::build::Output;
 use crate::config::Config;
@@ -17,31 +17,31 @@ use crate::permalink;
 use anyhow::Result;
 use rayon::prelude::*;
 
-/// Emit one redirect stub per `aliases:` entry across the frozen index. Stubs are
-/// mutually independent, so the work fans out over Rayon; the emitted outputs are
-/// in unspecified order. Collisions are resolved first-writer-wins by
+/// Emit one redirect stub per `redirect_from:` entry across the frozen index.
+/// Stubs are mutually independent, so the work fans out over Rayon; the emitted
+/// outputs are in unspecified order. Collisions are resolved first-writer-wins by
 /// [`write::run`](super::write::run) — and since the pipeline appends these stubs
-/// after every real page, an alias can never clobber a real page.
+/// after every real page, a redirect can never clobber a real page.
 pub fn run(config: &Config, index: &DocIndex) -> Result<Vec<Output>> {
     let outputs = index
         .par_docs()
-        .filter(|doc| !doc.aliases.is_empty())
+        .filter(|doc| !doc.redirect_from.is_empty())
         .flat_map(|doc| {
-            doc.aliases
+            doc.redirect_from
                 .par_iter()
-                .filter_map(move |alias| make_stub(config, doc, alias))
+                .filter_map(move |redirect_from| make_stub(config, doc, redirect_from))
         })
         .collect();
     Ok(outputs)
 }
 
-/// Build the redirect stub for a single alias, or `None` (with a warning) if the
-/// alias is empty/whitespace-only or escapes the output dir.
-fn make_stub(config: &Config, doc: &Doc, alias: &str) -> Option<Output> {
-    let Some(output_path) = permalink::alias_output_path(alias) else {
+/// Build the redirect stub for a single `redirect_from` entry, or `None` (with a
+/// warning) if the entry is empty/whitespace-only or escapes the output dir.
+fn make_stub(config: &Config, doc: &Doc, redirect_from: &str) -> Option<Output> {
+    let Some(output_path) = permalink::redirect_output_path(redirect_from) else {
         eprintln!(
-            "skipping invalid alias '{}' in {}",
-            alias,
+            "skipping invalid redirect_from '{}' in {}",
+            redirect_from,
             doc.id_path.display()
         );
         return None;

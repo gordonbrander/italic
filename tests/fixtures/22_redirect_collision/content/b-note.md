@@ -1,7 +1,7 @@
 ---
 title: B Note
 permalink: /b/
-aliases:
+redirect_from:
   - /shared/
 ---
 B

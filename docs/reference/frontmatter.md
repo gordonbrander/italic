@@ -30,7 +30,7 @@ A few keys have special meaning and sensible defaults when absent:
 | `date` | date | file created time, falling back to modified time | Publication date. |
 | `updated` | date | file modified time | Last-modified date. |
 | `permalink` | string | mirror of the source path with `.html` | Output location pattern (see below). |
-| `aliases` | array of strings | `[]` | Old URLs that should redirect here (see [Aliases](../guides/aliases.md)). |
+| `redirect_from` | array of strings | `[]` | Old URLs that should redirect here (see [Redirects](../guides/redirects.md)). |
 | `<taxonomy>` | array of strings | `[]` | One field per declared taxonomy, e.g. `tags: [intro, rust]`. |
 | `content` | string | `""` | `.yaml` files only: the body to render. |
 
@@ -65,13 +65,13 @@ permalink: /blog/:yyyy/:slug/   # → blog/2026/hello/index.html
 
 See the [Permalinks guide](../guides/permalinks.md).
 
-## Aliases
+## Redirects
 
-`aliases:` lists old URLs that should redirect to this document — useful after
-renaming or reorganizing a published note:
+`redirect_from:` lists old URLs that should redirect to this document — useful
+after renaming or reorganizing a published note:
 
 ```yaml
-aliases:
+redirect_from:
   - /old-url/
   - /posts/legacy.html
 ```
@@ -79,7 +79,7 @@ aliases:
 Each entry is a literal historical URL (no pattern expansion) and emits a small
 redirect page at that path. A trailing slash or extension-less entry writes
 `index.html` in that directory; an entry with an extension is written as that
-literal file. See the [Aliases guide](../guides/aliases.md).
+literal file. See the [Redirects guide](../guides/redirects.md).
 
 ## ATProto publishing
 

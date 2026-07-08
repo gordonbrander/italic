@@ -1,7 +1,7 @@
 ---
 title: A Note
 permalink: /a/
-aliases:
+redirect_from:
   - /shared/
 ---
 A

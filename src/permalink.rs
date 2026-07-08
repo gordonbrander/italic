@@ -72,20 +72,20 @@ pub fn to_url(output_path: &Path) -> String {
     }
 }
 
-/// Map an `aliases:` entry (a literal historical URL) to the output file its
-/// redirect stub is written at, following italic's trailing convention extended
-/// with Hugo's extension rule:
+/// Map a `redirect_from:` entry (a literal historical URL) to the output file
+/// its redirect stub is written at, following italic's trailing convention
+/// extended with Hugo's extension rule:
 ///
 /// - `/old-url/`          → `old-url/index.html`  (trailing slash)
 /// - `/old-url`           → `old-url/index.html`  (no extension)
 /// - `/posts/legacy.html` → `posts/legacy.html`   (literal file)
 /// - `/feed.xml`          → `feed.xml`
 ///
-/// Unlike [`expand`], **no** `:slug`/`:yyyy` token expansion happens — aliases
+/// Unlike [`expand`], **no** `:slug`/`:yyyy` token expansion happens — these
 /// are literal URLs, so a stray `:` is left untouched. Returns `None` for an
-/// empty/whitespace-only alias or one that escapes the output dir via `..`.
-pub fn alias_output_path(alias: &str) -> Option<PathBuf> {
-    let trimmed = alias.trim();
+/// empty/whitespace-only entry or one that escapes the output dir via `..`.
+pub fn redirect_output_path(redirect_from: &str) -> Option<PathBuf> {
+    let trimmed = redirect_from.trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -224,59 +224,59 @@ mod tests {
     }
 
     #[test]
-    fn alias_output_path_trailing_slash_appends_index() {
+    fn redirect_output_path_trailing_slash_appends_index() {
         assert_eq!(
-            alias_output_path("/old-url/"),
+            redirect_output_path("/old-url/"),
             Some(PathBuf::from("old-url/index.html")),
         );
     }
 
     #[test]
-    fn alias_output_path_no_extension_appends_index() {
+    fn redirect_output_path_no_extension_appends_index() {
         assert_eq!(
-            alias_output_path("/old-url"),
+            redirect_output_path("/old-url"),
             Some(PathBuf::from("old-url/index.html")),
         );
     }
 
     #[test]
-    fn alias_output_path_literal_file() {
+    fn redirect_output_path_literal_file() {
         assert_eq!(
-            alias_output_path("/posts/legacy.html"),
+            redirect_output_path("/posts/legacy.html"),
             Some(PathBuf::from("posts/legacy.html")),
         );
         assert_eq!(
-            alias_output_path("/feed.xml"),
+            redirect_output_path("/feed.xml"),
             Some(PathBuf::from("feed.xml")),
         );
     }
 
     #[test]
-    fn alias_output_path_strips_leading_slash() {
+    fn redirect_output_path_strips_leading_slash() {
         assert_eq!(
-            alias_output_path("old-url/"),
+            redirect_output_path("old-url/"),
             Some(PathBuf::from("old-url/index.html")),
         );
     }
 
     #[test]
-    fn alias_output_path_leaves_colon_literal() {
+    fn redirect_output_path_leaves_colon_literal() {
         // No `:slug` token expansion — an old URL with a `:` stays verbatim.
         assert_eq!(
-            alias_output_path("/2019/:weird/"),
+            redirect_output_path("/2019/:weird/"),
             Some(PathBuf::from("2019/:weird/index.html")),
         );
     }
 
     #[test]
-    fn alias_output_path_rejects_parent_dir() {
-        assert_eq!(alias_output_path("/../escape/"), None);
-        assert_eq!(alias_output_path("/a/../../b"), None);
+    fn redirect_output_path_rejects_parent_dir() {
+        assert_eq!(redirect_output_path("/../escape/"), None);
+        assert_eq!(redirect_output_path("/a/../../b"), None);
     }
 
     #[test]
-    fn alias_output_path_rejects_empty() {
-        assert_eq!(alias_output_path(""), None);
-        assert_eq!(alias_output_path("   "), None);
+    fn redirect_output_path_rejects_empty() {
+        assert_eq!(redirect_output_path(""), None);
+        assert_eq!(redirect_output_path("   "), None);
     }
 }
