@@ -117,7 +117,7 @@ pub fn resolve_in_ast<'a>(
                     let display = node_text(node);
                     let label = if display.is_empty() { target } else { display };
                     let url = asset_url(&id, base_path);
-                    let html = render_anchor(&url, &label);
+                    let html = render_anchor(&url, &label, "wikilink");
                     for child in node.children().collect::<Vec<_>>() {
                         child.detach();
                     }
@@ -205,18 +205,19 @@ fn render_embed(id: &Path, label: &str, base_path: &str) -> String {
     let url = asset_url(id, base_path);
     if is_image(id) {
         format!(
-            r#"<img src="{}" alt="{}">"#,
+            r#"<img class="embed" src="{}" alt="{}">"#,
             html::escape(&url),
             html::escape(label)
         )
     } else {
-        render_anchor(&url, label)
+        render_anchor(&url, label, "embed")
     }
 }
 
-fn render_anchor(url: &str, label: &str) -> String {
+fn render_anchor(url: &str, label: &str, class: &str) -> String {
     format!(
-        r#"<a href="{}">{}</a>"#,
+        r#"<a class="{}" href="{}">{}</a>"#,
+        html::escape(class),
         html::escape(url),
         html::escape(label)
     )
@@ -397,7 +398,7 @@ mod tests {
         let source = source_doc("blog/post.md");
         let out = render_md("![[diagram.png]]", &source, &["blog/diagram.png"], "");
         assert!(
-            out.contains(r#"<img src="/blog/diagram.png" alt="diagram.png">"#),
+            out.contains(r#"<img class="embed" src="/blog/diagram.png" alt="diagram.png">"#),
             "got: {out}"
         );
     }
@@ -419,7 +420,7 @@ mod tests {
         let source = source_doc("notes/n.md");
         let out = render_md("![[report.pdf]]", &source, &["notes/report.pdf"], "");
         assert!(
-            out.contains(r#"<a href="/notes/report.pdf">report.pdf</a>"#),
+            out.contains(r#"<a class="embed" href="/notes/report.pdf">report.pdf</a>"#),
             "got: {out}"
         );
     }
@@ -430,7 +431,7 @@ mod tests {
         let out = render_md("before ![[x.png]] after", &source, &["x.png"], "");
         assert!(out.contains("before "), "got: {out}");
         assert!(out.contains("after"), "got: {out}");
-        assert!(out.contains(r#"<img src="/x.png""#), "got: {out}");
+        assert!(out.contains(r#"<img class="embed" src="/x.png""#), "got: {out}");
     }
 
     #[test]
@@ -438,7 +439,7 @@ mod tests {
         let source = source_doc("notes/n.md");
         let out = render_md("see [[report.pdf]]", &source, &["notes/report.pdf"], "");
         assert!(
-            out.contains(r#"<a href="/notes/report.pdf">report.pdf</a>"#),
+            out.contains(r#"<a class="wikilink" href="/notes/report.pdf">report.pdf</a>"#),
             "got: {out}"
         );
     }
