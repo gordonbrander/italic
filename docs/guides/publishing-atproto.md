@@ -52,7 +52,28 @@ build` to update your site; run `italic atproto publish` to update the PDS.
    export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
    ```
 
-4. **Configure `atproto:`** in `config.yaml`:
+   Rather than exporting these every session, you can put them in a gitignored
+   `.env` file in your project root, which italic loads automatically:
+
+   ```sh
+   # .env  (gitignored — never commit your app password)
+   ITALIC_ATPROTO_DID=did:plc:abc123…
+   ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+   ```
+
+4. **Set your site metadata** in `config.yaml` — the publication record derives
+   from it (`site.title` → name, `site.url` + `site.base_path` → url,
+   `site.description` → description), so there is nothing atproto-specific to
+   configure:
+
+   ```yaml
+   site:
+     title: My Garden
+     url: https://example.com     # where your HTML actually lives
+   ```
+
+   An `atproto:` block is only needed to change the defaults — e.g. to publish
+   specific collections instead of every doc:
 
    ```yaml
    collections:
@@ -60,10 +81,7 @@ build` to update your site; run `italic atproto publish` to update the PDS.
        path: "posts/*.md"
 
    atproto:
-     collection: posts            # which collection becomes documents
-     publication:
-       name: My Garden
-       url: https://example.com   # where your HTML actually lives
+     collections: [posts]         # which collections become documents
    ```
 
 5. **Preview, then publish:**
@@ -102,6 +120,11 @@ export ITALIC_ATPROTO_DID=did:plc:abc123…
 export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
+italic also loads a `.env` file from the project root automatically (it is
+gitignored by default), so you can keep these there instead of exporting them
+each session. A value exported in the shell takes precedence over the `.env`
+file.
+
 ## No local state
 
 Publishing keeps no local state. Record keys are pure functions of `site.url`
@@ -122,8 +145,8 @@ writes exactly one record.
 
 ## Publishing full posts
 
-Each document in your configured `collection` maps straight from its existing
-fields — no new content modeling:
+Each document in your configured `collections` (their deduplicated union) maps
+straight from its existing fields — no new content modeling:
 
 | `site.standard.document` field | Source |
 |--------------------------------|--------|
@@ -137,9 +160,12 @@ fields — no new content modeling:
 | `coverImage` | the page's `image:` social image, else `site.image` (uploaded as a blob) |
 | `site` | your publication record's AT-URI |
 
-The **publication** record comes from `atproto.publication` — `name` and `url`
-are required to publish it (the build fails loudly if either is missing). An
-optional `icon:` path is uploaded as a blob.
+The **publication** record derives from `site:` — `site.title` becomes its
+`name` (required to publish; the run fails loudly if missing), `site.url` +
+`site.base_path` its `url`, and `site.description` its `description`.
+`atproto.publication` adds presentation: an optional `icon:` path uploaded as a
+blob, and an optional `theme:` (four `#rrggbb` colors) embedded as the record's
+[`basicTheme`](https://standard.site/docs/lexicons/theme/).
 
 ### Cover images
 
@@ -203,23 +229,27 @@ enforce write rate limits. italic spaces out writes with a small throttle.
 
 ## Configuration summary
 
-The full `atproto:` block (see the [config reference](../reference/config.md#atproto)
-for details):
+The `atproto:` block is entirely optional; the full shape (see the
+[config reference](../reference/config.md#atproto) for details):
 
 ```yaml
 atproto:
   pds_host: https://bsky.social   # optional
-  collection: posts               # docs to publish; defaults to `all`
+  collections: [posts]            # docs to publish; defaults to [all]
   verification: true              # emit the .well-known + <link> proofs
   publication:
-    name: My Garden               # required to publish
-    url: https://example.com      # required to publish
-    description: A digital garden.
     icon: static/icon.png
+    theme:                        # standard.site basic theme colors
+      background: "#1a1a2e"       # quote hex values — # starts a YAML comment
+      foreground: "#eeeeee"
+      accent: "#e94560"
+      accent_foreground: "#ffffff"
 ```
 
-Your identity (`ITALIC_ATPROTO_DID`) and app password
-(`ITALIC_ATPROTO_APP_PASSWORD`) live in the environment, never in config.
+The publication record's `name`/`url`/`description` come from `site.title`,
+`site.url` + `site.base_path`, and `site.description`. Your identity
+(`ITALIC_ATPROTO_DID`) and app password (`ITALIC_ATPROTO_APP_PASSWORD`) live in
+the environment, never in config.
 
 ## See also
 

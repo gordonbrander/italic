@@ -63,6 +63,7 @@ enum AtprotoCommand {
 }
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok(); // load .env if present; ignore if absent
     let cli = Cli::parse();
     match cli.command {
         Command::Build { drafts } => italic::build(drafts),

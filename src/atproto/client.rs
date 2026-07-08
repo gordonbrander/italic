@@ -238,15 +238,10 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atproto::config::{Atproto, Publication};
+    use crate::atproto::config::Atproto;
 
     fn publish_config() -> Atproto {
-        Atproto {
-            pds_host: "https://bsky.social".into(),
-            collection: "all".into(),
-            verification: true,
-            publication: Publication::default(),
-        }
+        Atproto::default()
     }
 
     // Credential resolution mutates process-global env vars, so the cases share

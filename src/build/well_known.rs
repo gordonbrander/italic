@@ -18,13 +18,11 @@ use std::path::PathBuf;
 const OUTPUT_PATH: &str = ".well-known/site.standard.publication";
 
 /// Emit the `.well-known/site.standard.publication` proof, or nothing when
-/// verification is off, no `atproto:` block exists, or the `ITALIC_ATPROTO_DID`
-/// env var / `site.url` (the derivation inputs) are missing.
+/// verification is off (`atproto.verification: false`) or the
+/// `ITALIC_ATPROTO_DID` env var / `site.url` (the derivation inputs) are
+/// missing. No `atproto:` block is needed — verification defaults on.
 pub fn run(config: &Config, did: Option<&str>) -> Result<Vec<Output>> {
-    let Some(atproto) = &config.atproto else {
-        return Ok(Vec::new());
-    };
-    if !atproto.verification {
+    if !config.atproto.verification {
         return Ok(Vec::new());
     }
     let (Some(did), Some(site_url)) = (did, &config.site_url) else {
@@ -46,6 +44,14 @@ fn proof(did: &str, site_url: &str) -> Vec<Output> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_site_url_emits_nothing() {
+        // A struct-built default config has verification on (the default) but no
+        // `site.url`, so even with a DID the proof must not be emitted.
+        let config = Config::default();
+        assert!(run(&config, Some("did:plc:abc")).unwrap().is_empty());
+    }
 
     #[test]
     fn proof_derives_publication_uri() {

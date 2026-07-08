@@ -51,18 +51,13 @@ pub fn publish(
     index: &DocIndex,
     options: Options,
 ) -> Result<()> {
-    let atproto = config
-        .atproto
-        .as_ref()
-        .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to publish"))?;
+    let atproto = &config.atproto;
 
     let (site_image, static_roots) = cover_inputs(config, site_data);
 
-    // Collect the docs to publish, sorted by id_path for deterministic, diffable
-    // syncs (the collection iterator is HashMap-backed, so order is otherwise
-    // unspecified).
-    let mut docs: Vec<&Doc> = index.get_collection(&atproto.collection).collect();
-    docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
+    // The docs to publish: the deduplicated union of the configured
+    // collections, id_path-sorted for deterministic, diffable syncs.
+    let docs = index.union_collections(&atproto.collections);
 
     // Document rkeys are derived from each doc's absolute canonical URL, so the
     // origin is required to disambiguate records — without it, two sites sharing
@@ -74,6 +69,14 @@ pub fn publish(
         ));
     }
 
+    // Build the expected publication record up front so a missing `site.title`
+    // fails fast — before any network work, dry runs included.
+    let derived_icon = match &atproto.publication.icon {
+        Some(path) => Some(derive_image(path)?),
+        None => None,
+    };
+    let expected_pub = publication_record(config, site_data, derived_icon)?;
+
     if options.dry_run {
         return dry_run(config, atproto, &docs, site_image, &static_roots);
     }
@@ -82,7 +85,14 @@ pub fn publish(
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(sync(config, atproto, &docs, site_image, &static_roots))
+    runtime.block_on(sync(
+        config,
+        atproto,
+        expected_pub,
+        &docs,
+        site_image,
+        &static_roots,
+    ))
 }
 
 /// Print what a real run would do, without any network calls (cover resolution
@@ -112,7 +122,7 @@ fn dry_run(
             document::publication_rkey(site_url)
         ),
     }
-    println!("  documents ({}):", atproto.collection);
+    println!("  documents ({}):", atproto.collections.join(", "));
     for doc in docs {
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
         let cover = match cover::resolve(doc, site_image, static_roots) {
@@ -142,6 +152,7 @@ fn dry_run(
 async fn sync(
     config: &Config,
     atproto: &Atproto,
+    expected_pub: document::Publication,
     docs: &[&Doc],
     site_image: Option<&str>,
     static_roots: &[PathBuf],
@@ -156,7 +167,13 @@ async fn sync(
         .site_url
         .as_deref()
         .expect("site.url required when publishing documents");
-    let publication_uri = bootstrap_publication(&client, atproto, site_url).await?;
+    let publication_uri = bootstrap_publication(
+        &client,
+        expected_pub,
+        atproto.publication.icon.as_deref(),
+        site_url,
+    )
+    .await?;
 
     // What the PDS currently holds, keyed by rkey, for the skip-unchanged check.
     let remote: HashMap<String, Unknown> = client
@@ -176,9 +193,16 @@ async fn sync(
 
         // Expected record with a locally-derived cover ref; if the PDS already
         // holds an identical record, skip the upload and the put entirely.
-        let mut record =
-            document::document(doc, &publication_uri, &config.base_path, covers.derive(doc)?);
-        if remote.get(&rkey).is_some_and(|r| compare::equal(&record, r)) {
+        let mut record = document::document(
+            doc,
+            &publication_uri,
+            &config.base_path,
+            covers.derive(doc)?,
+        );
+        if remote
+            .get(&rkey)
+            .is_some_and(|r| compare::equal(&record, r))
+        {
             unchanged += 1;
             continue;
         }
@@ -200,20 +224,18 @@ async fn sync(
 /// Create or update the single `site.standard.publication` record and return its
 /// AT-URI. The rkey is derived from the site origin so each site gets its own
 /// publication record on a shared PDS. Skips the write when the PDS already
-/// holds an identical record (icon compared by derived blob ref).
+/// holds a record identical to `expected` (whose icon is the locally-derived
+/// blob ref); on a put, the icon at `icon_path` is uploaded for real and swapped
+/// in, mirroring how `sync` handles cover images.
 async fn bootstrap_publication(
     client: &Client,
-    atproto: &Atproto,
+    expected: document::Publication,
+    icon_path: Option<&Path>,
     site_url: &str,
 ) -> Result<String> {
     let rkey = document::publication_rkey(site_url);
     let uri = document::publication_uri(client.did(), site_url);
 
-    let derived_icon = match &atproto.publication.icon {
-        Some(path) => Some(derive_image(path)?),
-        None => None,
-    };
-    let expected = document::publication(&atproto.publication, derived_icon)?;
     let existing = client
         .list_records(document::PUBLICATION_NSID)
         .await?
@@ -224,17 +246,60 @@ async fn bootstrap_publication(
         return Ok(uri);
     }
 
-    let icon = match &atproto.publication.icon {
-        Some(path) => Some(upload_image(client, path).await?),
-        None => None,
-    };
-    let record = document::publication(&atproto.publication, icon)?;
+    let mut record = expected;
+    if let Some(path) = icon_path {
+        record.icon = Some(upload_image(client, path).await?);
+    }
     let written = client
         .put_record(document::PUBLICATION_NSID, &rkey, &record)
         .await
         .context("publishing site.standard.publication")?;
     println!("publication: {}", written.uri);
     Ok(written.uri)
+}
+
+/// Build the expected `site.standard.publication` record from site config —
+/// `site.title` → name (required), `site.url` + `site.base_path` → url,
+/// `site.description` → description, `atproto.publication.theme` → basicTheme.
+/// Shared by publish and status so the two can't drift. `icon` is the caller's
+/// blob ref (locally derived for comparison, or freshly uploaded).
+fn publication_record(
+    config: &Config,
+    site_data: &SiteData,
+    icon: Option<BlobRef>,
+) -> Result<document::Publication> {
+    let name = site_data
+        .site
+        .get("title")
+        .and_then(serde_yaml_ng::Value::as_str)
+        .ok_or_else(|| {
+            anyhow!(
+                "site.title is required to publish — it becomes the publication \
+                 record's name (set it under `site:` in config.yaml)"
+            )
+        })?;
+    let site_url = config.site_url.as_deref().ok_or_else(|| {
+        anyhow!("site.url is required to publish — it becomes the publication record's url")
+    })?;
+    let url = format!("{site_url}{}", config.base_path);
+    let description = site_data
+        .site
+        .get("description")
+        .and_then(serde_yaml_ng::Value::as_str)
+        .map(str::to_string);
+    let theme = config
+        .atproto
+        .publication
+        .theme
+        .as_ref()
+        .map(document::basic_theme);
+    Ok(document::publication(
+        name.to_string(),
+        url,
+        description,
+        icon,
+        theme,
+    ))
 }
 
 /// Cover fallback inputs shared by publish and status: the site-wide default
@@ -381,6 +446,7 @@ fn rkey_from_uri(uri: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_yaml_ng::Mapping;
 
     #[test]
     fn rkey_from_uri_takes_last_segment() {
@@ -388,5 +454,83 @@ mod tests {
             rkey_from_uri("at://did:plc:abc/site.standard.document/3lwa"),
             "3lwa"
         );
+    }
+
+    /// A `SiteData` whose `site:` map holds the given string pairs.
+    fn site_data(pairs: &[(&str, &str)]) -> SiteData {
+        let mut site = Mapping::new();
+        for (k, v) in pairs {
+            site.insert((*k).into(), (*v).into());
+        }
+        SiteData {
+            site,
+            data: Mapping::new(),
+        }
+    }
+
+    fn config(site_url: &str, base_path: &str) -> Config {
+        Config {
+            site_url: Some(site_url.to_string()),
+            base_path: base_path.to_string(),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn publication_record_derives_fields_from_site() {
+        let config = config("https://example.com", "/blog");
+        let site_data = site_data(&[("title", "My Garden"), ("description", "A blog")]);
+        let record = publication_record(&config, &site_data, None).unwrap();
+        assert_eq!(record.name, "My Garden");
+        // url composes site.url + base_path.
+        assert_eq!(record.url, "https://example.com/blog");
+        assert_eq!(record.description.as_deref(), Some("A blog"));
+        assert!(record.basic_theme.is_none());
+    }
+
+    #[test]
+    fn publication_record_description_is_optional() {
+        let config = config("https://example.com", "");
+        let site_data = site_data(&[("title", "My Garden")]);
+        let record = publication_record(&config, &site_data, None).unwrap();
+        assert_eq!(record.url, "https://example.com");
+        assert!(record.description.is_none());
+    }
+
+    #[test]
+    fn publication_record_requires_site_title() {
+        let config = config("https://example.com", "");
+        let err = format!(
+            "{:#}",
+            publication_record(&config, &site_data(&[]), None).unwrap_err()
+        );
+        assert!(err.contains("site.title"), "{err}");
+    }
+
+    #[test]
+    fn publication_record_maps_configured_theme() {
+        use crate::atproto::config::{BasicTheme, Rgb};
+        let mut config = config("https://example.com", "");
+        let white = Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        };
+        config.atproto.publication.theme = Some(BasicTheme {
+            background: Rgb {
+                r: 0x1a,
+                g: 0x1a,
+                b: 0x2e,
+            },
+            foreground: white,
+            accent: white,
+            accent_foreground: white,
+        });
+        let site_data = site_data(&[("title", "My Garden")]);
+        let record = publication_record(&config, &site_data, None).unwrap();
+        let theme = record.basic_theme.expect("theme mapped onto the record");
+        assert_eq!(theme.type_, document::THEME_BASIC_NSID);
+        assert_eq!(theme.background.r, 0x1a);
+        assert_eq!(theme.background.b, 0x2e);
     }
 }

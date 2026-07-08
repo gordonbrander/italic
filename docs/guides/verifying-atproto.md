@@ -57,14 +57,13 @@ step.
 `italic atproto status` is networked, **authenticated**, and **read-only** — it
 never writes a record. It needs:
 
-- An [`atproto:`](../reference/config.md#atproto) block in `config.yaml`.
 - `site.url` set, since record keys are derived from your canonical URLs (the
-  same requirement `publish` has).
+  same requirement `publish` has), and `site.title` (the publication record's
+  name). No [`atproto:`](../reference/config.md#atproto) block is needed.
 - Credentials in the environment — the same
   `ITALIC_ATPROTO_DID` / `ITALIC_ATPROTO_APP_PASSWORD` you use to publish.
 - Buildable, publishable content, since it builds the expected records exactly
-  as `publish` would — including `atproto.publication` `name`/`url` and
-  readable cover images.
+  as `publish` would — including readable cover images.
 
 See the [CLI reference](../reference/cli.md#italic-atproto-status) for details.
 
