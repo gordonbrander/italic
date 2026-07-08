@@ -30,6 +30,14 @@ note *transclusion* — `![[Some Note]]` embeds a media file, but it won't inlin
 another note's rendered body. Start with the
 [tutorial](../getting-started/tutorial.md), which walks this exact path.
 
+> [!WARNING]
+> Obsidian's `aliases:` frontmatter (alternate titles, so other notes'
+> `[[Old Name]]` wikilinks resolve to this note) is currently **ignored** —
+> wikilinks that rely on an alias to resolve will render as unresolved. The
+> key is harmless to leave in place, but rename any such links (or the notes)
+> so they match by filename. Italic's URL-redirect feature uses the separate
+> [`redirect_from:`](redirects.md) key, so the two never collide.
+
 ## From Jekyll
 
 | Jekyll | Italic |
@@ -41,6 +49,7 @@ another note's rendered body. Start with the
 | Liquid (`{{ page.title }}`, `{% for %}`) | Tera — nearly identical interpolation/block syntax; filters differ in spots ([Tera built-ins](https://keats.github.io/tera/docs/#built-ins)). |
 | `_data/*.yml` | `data/*.yaml`, as `{{ data.* }}`. |
 | `categories`/`tags` | Declare both under `taxonomies:`. |
+| `redirect_from:` (jekyll-redirect-from plugin) | [`redirect_from:`](redirects.md) — same key, built in. |
 
 ## From Hugo
 
@@ -53,7 +62,7 @@ another note's rendered body. Start with the
 | `layouts/_default/list.html` | An [archive template](archives.md). |
 | Taxonomies in config | Same idea: `taxonomies:` array. |
 | Shortcodes | [Tera macros](macros.md). |
-| `aliases:` frontmatter | [`aliases:`](aliases.md) — same key, same redirect-stub behavior. |
+| `aliases:` frontmatter | Rename to [`redirect_from:`](redirects.md) — same redirect-stub behavior, different key. |
 
 ## From Zola
 
@@ -74,8 +83,8 @@ Differences to mind:
    layout).
 3. Recreate permalinks with `defaults:` so URLs don't break; spot-check old
    URLs against the new output. Where a URL *does* change, add the old one to
-   the page's [`aliases:`](aliases.md) so existing links redirect instead of
-   404.
+   the page's [`redirect_from:`](redirects.md) so existing links redirect
+   instead of 404.
 4. Port layouts to Tera one at a time, starting with `base.html`.
 5. Wire archives for listings and feeds.
 

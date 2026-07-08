@@ -29,19 +29,19 @@ index the previous stage left behind. Knowing the order explains most
    so they are order-independent and run in parallel.
 7. **Template** *(parallel)* — every source document and archive page is
    wrapped in its layout, producing the final output.
-8. **Alias** *(parallel)* — for every `aliases:` entry on a doc, emit a tiny
-   built-in HTML redirect stub at the old URL (`rel=canonical` + `<meta
+8. **Redirect** *(parallel)* — for every `redirect_from:` entry on a doc, emit
+   a tiny built-in HTML redirect stub at the old URL (`rel=canonical` + `<meta
    refresh>` + a JS `location.replace`, the static equivalent of a 301). The
    stub is a fixed built-in — no Tera env, no theme override. Stubs are
    *appended after* the template outputs, so a real page (or archive page) always
    wins a path collision (see stage 9).
 9. **Write** — outputs land in `output_dir` (default `public/`). Collisions are
-   resolved *first-writer-wins*; because aliases come last, they can never
-   clobber a real page.
+   resolved *first-writer-wins*; because redirect stubs come last, they can
+   never clobber a real page.
 10. **Static copy** — `static/` (theme first, then site, so site files win) is
    copied over the top.
 
-The parallel stages (markup, archives, template, alias) are embarrassingly
+The parallel stages (markup, archives, template, redirect) are embarrassingly
 parallel — this is where italic's speed comes from.
 
 ## Consequences worth knowing
@@ -70,13 +70,13 @@ collection count, a tag page, a feed, or anyone's backlinks.
 another archive's output. They read the same frozen snapshot of source
 content.
 
-**Aliases never overwrite.** Alias stubs are emitted last and written
-first-writer-wins, so an `aliases:` entry that collides with a real page (or
-archive output) is silently dropped in favor of the real page.
+**Redirects never overwrite.** Redirect stubs are emitted last and written
+first-writer-wins, so a `redirect_from:` entry that collides with a real page
+(or archive output) is silently dropped in favor of the real page.
 
 ## See also
 
 - [Content model](content-model.md)
 - [Archives guide](../guides/archives.md)
-- [Aliases guide](../guides/aliases.md)
+- [Redirects guide](../guides/redirects.md)
 - [CLI reference](../reference/cli.md)

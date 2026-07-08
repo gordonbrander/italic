@@ -41,8 +41,8 @@ pub struct Doc {
     pub updated: DateTime<Utc>,
     /// Literal historical URLs this doc should also be reachable at. Each emits a
     /// client-side redirect stub pointing at the doc's canonical URL (see
-    /// `build::alias`). Read from the `aliases:` frontmatter sequence.
-    pub aliases: Vec<String>,
+    /// `build::redirect`). Read from the `redirect_from:` frontmatter sequence.
+    pub redirect_from: Vec<String>,
     pub data: Mapping,
     pub links: Vec<PathBuf>,
 }
@@ -116,7 +116,7 @@ impl Default for Doc {
             terms: BTreeMap::new(),
             date: DateTime::<Utc>::UNIX_EPOCH,
             updated: DateTime::<Utc>::UNIX_EPOCH,
-            aliases: Vec::new(),
+            redirect_from: Vec::new(),
             data: Mapping::new(),
             links: Vec::new(),
         }
@@ -157,7 +157,7 @@ impl Doc {
             .unwrap_or(false);
         self.template = uplift_string(&self.data, "template");
         self.terms = uplift_terms(&self.data, taxonomies);
-        self.aliases = uplift_aliases(&self.data);
+        self.redirect_from = uplift_redirect_from(&self.data);
         if let Some(date) = parse_date(self.data.get("date")) {
             self.date = date;
         }
@@ -253,11 +253,11 @@ fn uplift_string(data: &Mapping, key: &str) -> Option<String> {
     data.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-/// Read the `aliases:` frontmatter field as a string sequence, skipping any
-/// non-string entries (same tolerance as [`uplift_terms`]). Missing or
+/// Read the `redirect_from:` frontmatter field as a string sequence, skipping
+/// any non-string entries (same tolerance as [`uplift_terms`]). Missing or
 /// non-sequence → empty.
-fn uplift_aliases(data: &Mapping) -> Vec<String> {
-    match data.get("aliases") {
+fn uplift_redirect_from(data: &Mapping) -> Vec<String> {
+    match data.get("redirect_from") {
         Some(Value::Sequence(seq)) => seq
             .iter()
             .filter_map(|v| v.as_str().map(str::to_string))
@@ -424,9 +424,9 @@ mod tests {
     }
 
     #[test]
-    fn uplift_frontmatter_aliases_as_string_sequence() {
+    fn uplift_frontmatter_redirect_from_as_string_sequence() {
         let data = map_from(&[(
-            "aliases",
+            "redirect_from",
             Value::Sequence(vec![
                 Value::String("/old/".into()),
                 Value::String("/posts/legacy.html".into()),
@@ -435,13 +435,13 @@ mod tests {
         )]);
         let d = uplifted("p.md", "", data, &tax());
         // Non-string entries (the `7`) are skipped; order preserved.
-        assert_eq!(d.aliases, vec!["/old/", "/posts/legacy.html"]);
+        assert_eq!(d.redirect_from, vec!["/old/", "/posts/legacy.html"]);
     }
 
     #[test]
-    fn uplift_frontmatter_aliases_default_empty() {
+    fn uplift_frontmatter_redirect_from_default_empty() {
         let d = uplifted("p.md", "", Mapping::new(), &tax());
-        assert!(d.aliases.is_empty());
+        assert!(d.redirect_from.is_empty());
     }
 
     #[test]

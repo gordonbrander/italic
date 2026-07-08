@@ -28,7 +28,7 @@ to a complete reference of every config key and template filter.
 - [Metadata & social cards](guides/metadata.md)
 - [Archives, feeds & sitemaps](guides/archives.md)
 - [Permalinks](guides/permalinks.md)
-- [Aliases (redirects)](guides/aliases.md)
+- [Redirects](guides/redirects.md)
 - [Drafts](guides/drafts.md)
 - [Themes](guides/themes.md)
 - [Data files](guides/data.md)

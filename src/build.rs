@@ -17,10 +17,11 @@
 //!    (never re-classified).
 //! 7. [`template`] ║ — render each source doc (read-only) and archive page into
 //!    final output, producing [`Output`]s.
-//! 8. [`alias`] ║ — emit a client-side redirect stub for each doc `aliases:`
-//!    entry, appended to the outputs (generated, never classified).
+//! 8. [`redirect`] ║ — emit a client-side redirect stub for each doc
+//!    `redirect_from:` entry, appended to the outputs (generated, never
+//!    classified).
 //! 9. [`write`] — write the outputs to `output_dir`, skipping path collisions
-//!    first-writer-wins (so a real page is never clobbered by an alias stub).
+//!    first-writer-wins (so a real page is never clobbered by a redirect stub).
 //! 10. [`content_assets`] — mirror co-located media (images/PDFs sitting next to
 //!     notes) from `content/` into `output_dir`.
 //! 11. [`static_copy`] — copy `static/` over the top (overlays content assets on
@@ -32,13 +33,13 @@
 //! template phase read it by shared `Arc` reference and write their output to the
 //! side, so there is no corpus-wide clone.
 
-pub mod alias;
 pub mod archive;
 pub mod classify;
 pub mod content_assets;
 pub mod defaults;
 pub mod markup;
 pub mod read;
+pub mod redirect;
 pub mod standard_link;
 pub mod static_copy;
 pub mod template;
@@ -93,11 +94,11 @@ pub fn run(include_drafts: bool) -> Result<()> {
     let (config, site_data, index) = build_index(include_drafts)?;
     // Archives read the frozen index and emit view pages (not classified).
     let archive_docs = archive::run(&config, &site_data, &index)?;
-    // Render source docs (read-only) + archive pages into output. Alias redirect
+    // Render source docs (read-only) + archive pages into output. Redirect
     // stubs are appended after, so a real page always wins a path collision
     // (write::run is first-writer-wins).
     let mut outputs = template::run(&config, &site_data, &index, archive_docs)?;
-    outputs.extend(alias::run(&config, &index)?);
+    outputs.extend(redirect::run(&config, &index)?);
     // The standard.site publication proof (.well-known), gated on
     // `atproto.verification` + the `ITALIC_ATPROTO_DID`/`site.url` inputs.
     let did = crate::atproto::client::env_did()?;
