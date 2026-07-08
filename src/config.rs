@@ -137,13 +137,14 @@ pub struct Config {
     /// same path already exists.
     #[serde(skip)]
     pub feed: Feed,
-    /// Non-secret `atproto:` settings (PDS host, target collection, publication
-    /// metadata). `None` when the site declares no `atproto:` block
-    /// — the `atproto publish` command errors in that case. The account DID and app
-    /// password are read from the environment, never from here. See
+    /// Non-secret `atproto:` settings (PDS host, target collections, publication
+    /// presentation). Parsed from the optional `atproto:` block; defaults apply
+    /// when the block is absent, so `atproto publish`/`status` work from env
+    /// credentials plus `site:` metadata alone. The account DID and app password
+    /// are read from the environment, never from here. See
     /// [`crate::atproto::config`].
     #[serde(skip)]
-    pub atproto: Option<crate::atproto::config::Atproto>,
+    pub atproto: crate::atproto::config::Atproto,
 }
 
 impl Default for Config {
@@ -165,7 +166,7 @@ impl Default for Config {
             related: Related::default(),
             sitemap: Sitemap::default(),
             feed: Feed::default(),
-            atproto: None,
+            atproto: crate::atproto::config::Atproto::default(),
         }
     }
 }
@@ -222,11 +223,9 @@ impl Config {
         validate_auto_archives(&config.sitemap, &config.feed, &config.collections)
             .with_context(|| format!("validating `sitemap`/`feed` in {}", path.display()))?;
         // Every collection named by `atproto:` must be declared, like the
-        // sitemap/feed checks. `all` always exists, so the defaults validate.
-        if let Some(atproto) = &config.atproto {
-            validate_atproto(atproto, &config.collections)
-                .with_context(|| format!("validating `atproto` in {}", path.display()))?;
-        }
+        // sitemap/feed checks. `all` always exists, so the default validates.
+        validate_atproto(&config.atproto, &config.collections)
+            .with_context(|| format!("validating `atproto` in {}", path.display()))?;
         // Derive the URL fields once, from the final (possibly theme-merged) map.
         config.site_url = site
             .get(Value::String("url".into()))
@@ -343,10 +342,8 @@ impl Config {
                 .with_context(|| format!("parsing `feed` in {}", path.display()))?;
         }
         if let Some(map) = atproto_map {
-            config.atproto = Some(
-                crate::atproto::config::parse_atproto(&map, ALL)
-                    .with_context(|| format!("parsing `atproto` in {}", path.display()))?,
-            );
+            config.atproto = crate::atproto::config::parse_atproto(&map)
+                .with_context(|| format!("parsing `atproto` in {}", path.display()))?;
         }
         Ok((config, site))
     }
@@ -695,18 +692,20 @@ fn validate_auto_archives(
     Ok(())
 }
 
-/// Ensure the collection named by `atproto:` is declared. Run after the theme
+/// Ensure every collection named by `atproto:` is declared. Run after the theme
 /// merge, like [`validate_auto_archives`].
 fn validate_atproto(
     atproto: &crate::atproto::config::Atproto,
     collections: &[(String, Query)],
 ) -> Result<()> {
     let known = |name: &str| collections.iter().any(|(n, _)| n == name);
-    if !known(&atproto.collection) {
-        return Err(anyhow::anyhow!(
-            "atproto: `{}` does not name a collection (declare it under `collections:`)",
-            atproto.collection
-        ));
+    for name in &atproto.collections {
+        if !known(name) {
+            return Err(anyhow::anyhow!(
+                "atproto: `{}` does not name a collection (declare it under `collections:`)",
+                name
+            ));
+        }
     }
     Ok(())
 }
@@ -1411,11 +1410,18 @@ mod tests {
     }
 
     #[test]
-    fn atproto_absent_yields_none() {
+    fn atproto_absent_yields_default() {
+        // No `atproto:` block still yields a working default config — env
+        // credentials plus `site:` metadata are enough to publish.
         let dir = tempdir("config");
         let path = write_config(&dir, "content_dir: foo\n");
         let (config, _) = Config::load_with_theme(&path).unwrap();
-        assert!(config.atproto.is_none());
+        assert_eq!(config.atproto.collections, vec![ALL]);
+        assert!(config.atproto.verification);
+        assert_eq!(
+            config.atproto.pds_host,
+            crate::atproto::config::DEFAULT_PDS_HOST
+        );
         cleanup(&dir);
     }
 
@@ -1424,22 +1430,39 @@ mod tests {
         let dir = tempdir("config");
         let path = write_config(&dir, "atproto:\n  pds_host: https://pds.example\n");
         let (config, _) = Config::load_with_theme(&path).unwrap();
-        let atproto = config.atproto.expect("atproto block present");
-        assert_eq!(atproto.pds_host, "https://pds.example");
+        assert_eq!(config.atproto.pds_host, "https://pds.example");
         // Defaults to the always-present `all` collection, which validates.
-        assert_eq!(atproto.collection, ALL);
+        assert_eq!(config.atproto.collections, vec![ALL]);
         cleanup(&dir);
     }
 
     #[test]
     fn atproto_unknown_collection_errors() {
         let dir = tempdir("config");
-        let path = write_config(&dir, "atproto:\n  collection: nope\n");
+        let path = write_config(&dir, "atproto:\n  collections: [nope]\n");
         let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
         assert!(
             err.contains("nope"),
             "error should name the collection: {err}"
         );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn atproto_legacy_collection_key_errors_with_hint() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "atproto:\n  collection: posts\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(err.contains("`collections`"), "{err}");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn atproto_legacy_publication_name_errors_with_hint() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "atproto:\n  publication:\n    name: My Garden\n");
+        let err = format!("{:#}", Config::load_with_theme(&path).unwrap_err());
+        assert!(err.contains("site.title"), "{err}");
         cleanup(&dir);
     }
 

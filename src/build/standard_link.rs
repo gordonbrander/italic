@@ -31,27 +31,37 @@ use std::path::PathBuf;
 pub const DATA_KEY: &str = "atproto_uri";
 
 pub fn run(config: &Config, did: Option<&str>, index: &mut DocIndex) -> Result<()> {
-    let Some(atproto) = &config.atproto else {
-        return Ok(());
-    };
-    if !atproto.verification {
+    if !config.atproto.verification {
         return Ok(());
     }
     let (Some(did), Some(site_url)) = (did, &config.site_url) else {
         return Ok(());
     };
-    inject(index, did, site_url, &config.base_path, &atproto.collection);
+    inject(
+        index,
+        did,
+        site_url,
+        &config.base_path,
+        &config.atproto.collections,
+    );
     Ok(())
 }
 
 /// Derive and set `atproto_uri` on every non-draft doc in the publish
-/// collection. Drafts are skipped — they are never published (publish builds
-/// without drafts), so a derived URI would assert a record that will never
-/// exist. Split from [`run`] (which adds the config gating) so it is
-/// unit-testable.
-fn inject(index: &mut DocIndex, did: &str, site_url: &str, base_path: &str, collection: &str) {
+/// collections (their deduplicated union). Drafts are skipped — they are never
+/// published (publish builds without drafts), so a derived URI would assert a
+/// record that will never exist. Split from [`run`] (which adds the config
+/// gating) so it is unit-testable.
+fn inject(
+    index: &mut DocIndex,
+    did: &str,
+    site_url: &str,
+    base_path: &str,
+    collections: &[String],
+) {
     let ids: Vec<PathBuf> = index
-        .get_collection(collection)
+        .union_collections(collections)
+        .iter()
         .filter(|doc| !doc.draft)
         .map(|doc| doc.id_path.clone())
         .collect();
@@ -106,10 +116,15 @@ mod tests {
             .and_then(Value::as_str)
     }
 
+    /// The collections argument for a single named collection.
+    fn posts() -> Vec<String> {
+        vec!["posts".to_string()]
+    }
+
     #[test]
     fn injects_derived_uri_for_collection_members() {
         let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
-        inject(&mut index, DID, SITE_URL, "", "posts");
+        inject(&mut index, DID, SITE_URL, "", &posts());
         // Exactly the URI atproto would write: same canonical_url + rkey fns.
         let expected = document::document_uri(DID, "https://example.com/posts/hello/");
         assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
@@ -120,25 +135,44 @@ mod tests {
         let mut draft = doc("posts/wip.md", "posts/wip/index.html");
         draft.draft = true;
         let mut index = index_with(vec![draft]);
-        inject(&mut index, DID, SITE_URL, "", "posts");
+        inject(&mut index, DID, SITE_URL, "", &posts());
         assert!(uri_of(&index, "posts/wip.md").is_none());
     }
 
     #[test]
-    fn skips_docs_outside_the_collection() {
+    fn skips_docs_outside_the_collections() {
         let mut index = index_with(vec![
             doc("posts/hello.md", "posts/hello/index.html"),
             doc("about.md", "about/index.html"),
         ]);
-        inject(&mut index, DID, SITE_URL, "", "posts");
+        inject(&mut index, DID, SITE_URL, "", &posts());
         assert!(uri_of(&index, "posts/hello.md").is_some());
         assert!(uri_of(&index, "about.md").is_none());
     }
 
     #[test]
+    fn covers_the_union_of_collections() {
+        let mut index = index_with(vec![
+            doc("posts/hello.md", "posts/hello/index.html"),
+            doc("pages/about.md", "pages/about/index.html"),
+        ]);
+        let m: Mapping = serde_yaml_ng::from_str("path: pages/*").unwrap();
+        index.define_collection("pages", &Query::from_yaml_mapping(&m).unwrap());
+        // `posts` twice: overlapping collections must not double-inject.
+        let names = vec![
+            "posts".to_string(),
+            "pages".to_string(),
+            "posts".to_string(),
+        ];
+        inject(&mut index, DID, SITE_URL, "", &names);
+        assert!(uri_of(&index, "posts/hello.md").is_some());
+        assert!(uri_of(&index, "pages/about.md").is_some());
+    }
+
+    #[test]
     fn base_path_participates_in_the_derived_url() {
         let mut index = index_with(vec![doc("posts/hello.md", "posts/hello/index.html")]);
-        inject(&mut index, DID, SITE_URL, "/blog", "posts");
+        inject(&mut index, DID, SITE_URL, "/blog", &posts());
         let expected = document::document_uri(DID, "https://example.com/blog/posts/hello/");
         assert_eq!(uri_of(&index, "posts/hello.md"), Some(expected.as_str()));
     }

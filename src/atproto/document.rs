@@ -19,6 +19,8 @@ use sha2::{Digest, Sha256};
 
 pub const DOCUMENT_NSID: &str = "site.standard.document";
 pub const PUBLICATION_NSID: &str = "site.standard.publication";
+pub const THEME_BASIC_NSID: &str = "site.standard.theme.basic";
+const THEME_COLOR_RGB_NSID: &str = "site.standard.theme.color#rgb";
 
 /// External content lexicon ([markpub.at](https://markpub.at/)) used to carry
 /// the full body as Markdown in the document's `content` open union.
@@ -92,6 +94,54 @@ pub struct Publication {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<BlobRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basic_theme: Option<BasicTheme>,
+}
+
+/// The `site.standard.theme.basic` object embedded on a [`Publication`] as
+/// `basicTheme`. Built from the config-side colors by [`basic_theme`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BasicTheme {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    pub background: RgbColor,
+    pub foreground: RgbColor,
+    pub accent: RgbColor,
+    pub accent_foreground: RgbColor,
+}
+
+/// A `site.standard.theme.color#rgb` object.
+#[derive(Debug, Clone, Serialize)]
+pub struct RgbColor {
+    #[serde(rename = "$type")]
+    pub type_: &'static str,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl From<crate::atproto::config::Rgb> for RgbColor {
+    fn from(rgb: crate::atproto::config::Rgb) -> Self {
+        Self {
+            type_: THEME_COLOR_RGB_NSID,
+            r: rgb.r,
+            g: rgb.g,
+            b: rgb.b,
+        }
+    }
+}
+
+/// Map the config-side theme colors to the `site.standard.theme.basic` record
+/// object.
+pub fn basic_theme(theme: &crate::atproto::config::BasicTheme) -> BasicTheme {
+    BasicTheme {
+        type_: THEME_BASIC_NSID,
+        background: theme.background.into(),
+        foreground: theme.foreground.into(),
+        accent: theme.accent.into(),
+        accent_foreground: theme.accent_foreground.into(),
+    }
 }
 
 /// Stable record key: the full SHA-256 of `input`, base32-encoded and lowercased
@@ -110,7 +160,10 @@ pub fn blob_cid(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut cid = vec![0x01, 0x55, 0x12, 0x20];
     cid.extend_from_slice(&digest);
-    format!("b{}", data_encoding::BASE32_NOPAD.encode(&cid).to_lowercase())
+    format!(
+        "b{}",
+        data_encoding::BASE32_NOPAD.encode(&cid).to_lowercase()
+    )
 }
 
 /// A [`BlobRef`] derived locally from file bytes — same `ref.$link` and `size`
@@ -235,27 +288,24 @@ pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRe
     }
 }
 
-/// Build the `site.standard.publication` record from config. `icon` is the
-/// pre-uploaded icon blob. Errors if the required `name`/`url` are missing.
+/// Build the `site.standard.publication` record from plain values. The values
+/// are derived from `site:` config by `crate::atproto::publication_record`,
+/// which owns the requiredness checks (`site.title`, `site.url`).
 pub fn publication(
-    config: &crate::atproto::config::Publication,
+    name: String,
+    url: String,
+    description: Option<String>,
     icon: Option<BlobRef>,
-) -> anyhow::Result<Publication> {
-    let name = config
-        .name
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("atproto.publication.name is required to publish"))?;
-    let url = config
-        .url
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("atproto.publication.url is required to publish"))?;
-    Ok(Publication {
+    basic_theme: Option<BasicTheme>,
+) -> Publication {
+    Publication {
         type_: PUBLICATION_NSID,
         url,
         name,
-        description: config.description.clone(),
+        description,
         icon,
-    })
+        basic_theme,
+    }
 }
 
 #[cfg(test)]
@@ -442,17 +492,65 @@ mod tests {
     }
 
     #[test]
-    fn publication_requires_name_and_url() {
-        let mut cfg = crate::atproto::config::Publication::default();
-        assert!(publication(&cfg, None).is_err());
-        cfg.name = Some("My Garden".into());
-        assert!(publication(&cfg, None).is_err());
-        cfg.url = Some("https://example.com".into());
-        let rec = publication(&cfg, None).unwrap();
+    fn publication_serializes_to_lexicon_shape() {
+        let rec = publication(
+            "My Garden".into(),
+            "https://example.com".into(),
+            None,
+            None,
+            None,
+        );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["$type"], "site.standard.publication");
         assert_eq!(v["name"], "My Garden");
         assert_eq!(v["url"], "https://example.com");
+        assert!(v.get("description").is_none());
         assert!(v.get("icon").is_none());
+        assert!(v.get("basicTheme").is_none());
+    }
+
+    #[test]
+    fn publication_theme_serializes_to_lexicon_shape() {
+        use crate::atproto::config::{BasicTheme as ThemeConfig, Rgb};
+        let theme = ThemeConfig {
+            background: Rgb {
+                r: 0x1a,
+                g: 0x1a,
+                b: 0x2e,
+            },
+            foreground: Rgb {
+                r: 0xee,
+                g: 0xee,
+                b: 0xee,
+            },
+            accent: Rgb {
+                r: 0xe9,
+                g: 0x45,
+                b: 0x60,
+            },
+            accent_foreground: Rgb {
+                r: 255,
+                g: 255,
+                b: 255,
+            },
+        };
+        let rec = publication(
+            "My Garden".into(),
+            "https://example.com".into(),
+            Some("A digital garden.".into()),
+            None,
+            Some(basic_theme(&theme)),
+        );
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["description"], "A digital garden.");
+        let t = &v["basicTheme"];
+        assert_eq!(t["$type"], "site.standard.theme.basic");
+        // camelCase field name per the lexicon.
+        assert_eq!(t["accentForeground"]["r"], 255);
+        assert_eq!(t["background"]["$type"], "site.standard.theme.color#rgb");
+        assert_eq!(t["background"]["r"], 0x1a);
+        assert_eq!(t["background"]["g"], 0x1a);
+        assert_eq!(t["background"]["b"], 0x2e);
+        assert_eq!(t["accent"]["r"], 0xe9);
     }
 }

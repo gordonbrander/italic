@@ -137,6 +137,20 @@ impl DocIndex {
             .filter_map(|id| self.docs.get(id))
     }
 
+    /// Docs belonging to any of the named collections — the deduplicated union
+    /// (a doc in several appears once), sorted by `id_path` for deterministic
+    /// iteration. Used by the atproto layer, where `atproto.collections` names
+    /// several collections to publish.
+    pub fn union_collections(&self, names: &[String]) -> Vec<&Doc> {
+        let mut docs: Vec<&Doc> = names
+            .iter()
+            .flat_map(|name| self.get_collection(name))
+            .collect();
+        docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
+        docs.dedup_by(|a, b| a.id_path == b.id_path);
+        docs
+    }
+
     // --- taxonomies --------------------------------------------------------
 
     /// Build one taxonomy index per configured taxonomy: a `term slug -> docs`
@@ -403,6 +417,34 @@ mod tests {
     fn get_collection_unknown_name_is_empty() {
         let index = index(vec![doc("a.md", "A", "2025-01-01")]);
         assert_eq!(index.get_collection("nope").count(), 0);
+    }
+
+    #[test]
+    fn union_collections_dedups_and_sorts_by_id_path() {
+        let mut index = index(vec![
+            doc("posts/a.md", "A", "2025-01-01"),
+            doc("posts/b.md", "B", "2025-03-01"),
+            doc("notes/c.md", "C", "2025-02-01"),
+        ]);
+        // `posts` and `recent` overlap on posts/b.md.
+        let posts = Query {
+            path: Some(
+                globset::GlobBuilder::new("posts/*.md")
+                    .literal_separator(true)
+                    .build()
+                    .unwrap(),
+            ),
+            ..Query::default()
+        };
+        index.define_collection("posts", &posts);
+        index.define_collection("all", &Query::default());
+        let union = index.union_collections(&["posts".to_string(), "all".to_string()]);
+        let ids: Vec<&str> = union.iter().map(|d| d.id_path.to_str().unwrap()).collect();
+        // Deduped (posts/* appear once) and id_path-sorted.
+        assert_eq!(ids, vec!["notes/c.md", "posts/a.md", "posts/b.md"]);
+        // Unknown names contribute nothing; empty list yields empty.
+        assert_eq!(index.union_collections(&["nope".to_string()]).len(), 0);
+        assert!(index.union_collections(&[]).is_empty());
     }
 
     #[test]

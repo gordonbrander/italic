@@ -219,10 +219,12 @@ order.
 ## `atproto`
 
 Non-secret settings for `italic atproto publish`, which syncs your site to an ATProto
-PDS as [standard.site](https://standard.site/) documents. Absent by default —
-without an `atproto:` block, `italic atproto publish`
-errors. **Your identity and secrets never go here**: the account DID comes from
-the environment (`ITALIC_ATPROTO_DID` — look it up with
+PDS as [standard.site](https://standard.site/) documents. **The whole block is
+optional** — the publication record's `name`, `url`, and `description` derive
+from `site:` (`site.title`, `site.url` + `site.base_path`, `site.description`),
+so credentials in the environment plus your existing `site:` metadata are enough
+to publish. **Your identity and secrets never go here**: the account DID comes
+from the environment (`ITALIC_ATPROTO_DID` — look it up with
 `italic atproto did <handle>`), and so does your app password
 (`ITALIC_ATPROTO_APP_PASSWORD`). Unknown keys (in the block or its sub-maps)
 are an error. See the
@@ -231,13 +233,15 @@ are an error. See the
 ```yaml
 atproto:
   pds_host: https://bsky.social   # optional
-  collection: posts               # which collection becomes documents
+  collections: [posts]            # which collections become documents
   verification: true              # emit the .well-known + <link> proofs
   publication:
-    name: My Garden               # required to publish the publication record
-    url: https://example.com      # required — where your HTML actually lives
-    description: A digital garden.
     icon: static/icon.png         # uploaded as a blob
+    theme:                        # standard.site basic theme colors
+      background: "#1a1a2e"       # quote hex values — `#` starts a YAML comment
+      foreground: "#eeeeee"
+      accent: "#e94560"
+      accent_foreground: "#ffffff"
 ```
 
 Top-level keys:
@@ -245,12 +249,19 @@ Top-level keys:
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `pds_host` | string | `https://bsky.social` | PDS XRPC host. Overridden by `ITALIC_ATPROTO_PDS_HOST`. |
-| `collection` | string | `all` | Collection whose docs become `site.standard.document` records. Must be a declared collection. |
+| `collections` | list | `[all]` | Collections whose docs become `site.standard.document` records — the deduplicated union of their members. Each must be a declared collection. `[]` publishes only the publication record. |
 | `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). Needs `ITALIC_ATPROTO_DID` and `site.url` — the derivation inputs. |
-| `publication` | mapping | — | The `site.standard.publication` record metadata. |
+| `publication` | mapping | — | Presentation for the `site.standard.publication` record. |
 
-`publication` keys: `name` and `url` (both required to publish), `description`,
-and `icon` (a path uploaded as a blob).
+`publication` keys: `icon` (a path uploaded as a blob) and `theme` (the
+[standard.site basic theme](https://standard.site/docs/lexicons/theme/),
+embedded on the publication record as `basicTheme`). When `theme:` is present,
+all four colors are required, each a `#rrggbb` hex string — quote them, since
+`#` starts a YAML comment.
+
+Migrating from older configs: `collection:` (singular) became `collections:` (a
+list), and `publication.name`/`url`/`description` were removed in favor of the
+`site:` fields above. `site.title` is required to publish.
 
 The env-var resolution is covered in the
 [Publishing guide](../guides/publishing-atproto.md).

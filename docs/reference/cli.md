@@ -54,8 +54,8 @@ Unlike the other commands this one is networked and authenticated, and it
 writes **no HTML** — it reuses the build only to obtain your rendered
 documents. Records that are identical to what the PDS already holds are
 skipped (no blob upload, no repo commit); the summary reports the split
-(`done: 2 put, 40 unchanged`). Requires an [`atproto:`](config.md#atproto)
-block and credentials (see the
+(`done: 2 put, 40 unchanged`). Requires `site.title`, `site.url`, and
+credentials — no [`atproto:`](config.md#atproto) block is needed (see the
 [Publishing guide](../guides/publishing-atproto.md)).
 
 | Flag | Default | Meaning |
@@ -78,8 +78,9 @@ Compare the records your site *should* have against what your PDS actually
 holds (via `com.atproto.repo.listRecords`) — the PDS is the source of truth;
 there is no local state file. Networked, authenticated, and **read-only** — it
 never writes a record. Like `atproto publish` it builds the site index (drafts
-excluded, no HTML written) to derive the expected records, so it requires an
-[`atproto:`](config.md#atproto) block, `site.url`, and credentials.
+excluded, no HTML written) to derive the expected records, so it requires the
+same inputs: `site.title`, `site.url`, and credentials — no
+[`atproto:`](config.md#atproto) block needed.
 
 For each expected record it reports `ok` (present and identical to the locally
 built record), `CHANGED` (present but differing — unpublished local edits, or

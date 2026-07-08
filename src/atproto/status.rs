@@ -19,14 +19,13 @@
 //!   published).
 //!
 //! Building the expected records requires the same inputs publishing does —
-//! `site.url`, a publishable `atproto.publication` (name/url), and readable
+//! `site.url`, `site.title` (the publication record's name), and readable
 //! cover images. MISSING or CHANGED records make the command exit nonzero so CI
 //! can gate on it; orphans only warn, since the fix (deleteRecord) is manual.
 
 use crate::atproto::client::{Client, Credentials};
 use crate::atproto::{compare, document};
 use crate::config::Config;
-use crate::doc::Doc;
 use crate::doc_index::DocIndex;
 use crate::site_data::SiteData;
 use anyhow::{Context, Result, anyhow, bail};
@@ -97,10 +96,7 @@ fn classify(expected: &BTreeMap<String, Expected>, remote: &[RemoteDoc], site_ur
 /// function (mirroring [`crate::atproto::publish`]): it builds a current-thread
 /// runtime and drives the async check to completion.
 pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()> {
-    let atproto = config
-        .atproto
-        .as_ref()
-        .ok_or_else(|| anyhow!("no `atproto:` block in config.yaml — nothing to verify"))?;
+    let atproto = &config.atproto;
 
     // Same requirement as `publish`: rkeys are derived from absolute canonical
     // URLs, so the origin is needed to reconstruct them.
@@ -118,8 +114,7 @@ pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()
 
     // Build the expected records exactly the way `publish` does — same record
     // builders, same locally-derived cover blob refs — so the two can't drift.
-    let mut docs: Vec<&Doc> = index.get_collection(&atproto.collection).collect();
-    docs.sort_by(|a, b| a.id_path.cmp(&b.id_path));
+    let docs = index.union_collections(&atproto.collections);
     let (site_image, static_roots) = super::cover_inputs(config, site_data);
     let mut covers = super::Covers::new(site_image, &static_roots);
     let expected: BTreeMap<String, Expected> = docs
@@ -141,7 +136,7 @@ pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()
         Some(path) => Some(super::derive_image(path)?),
         None => None,
     };
-    let expected_pub = document::publication(&atproto.publication, icon)
+    let expected_pub = super::publication_record(config, site_data, icon)
         .context("building the expected publication record")?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -301,7 +296,7 @@ mod tests {
                 Some("at://did:plc:other/site.standard.publication/x"),
                 json!({}),
             ), // another site — ignored
-            remote("r6", None, json!({})), // unattributable — ignored
+            remote("r6", None, json!({})),                     // unattributable — ignored
         ];
         let report = classify(&expected, &listed, ours);
         assert_eq!(report.published, vec!["a.md"]);
