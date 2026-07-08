@@ -32,6 +32,7 @@
 use super::wikilink::{dir_distance, node_text, prefix_matches, split_prefix_stem};
 use crate::doc::Doc;
 use crate::html;
+use crate::slug;
 use comrak::nodes::{AstNode, NodeValue};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};

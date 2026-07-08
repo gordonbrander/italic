@@ -199,7 +199,7 @@ fn main() -> Result<()> {
         fm.push_str("---\n\n");
 
         let contents = format!("{fm}{}\n", body.join("\n\n"));
-        let path = args.out.join(format!("{}.md", slug::slugify(title)));
+        let path = args.out.join(format!("{}.md", italic::slug::slugify(title)));
         fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
     }
 

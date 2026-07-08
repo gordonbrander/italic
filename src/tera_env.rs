@@ -93,6 +93,9 @@ fn markup_options() -> comrak::Options<'static> {
     options.extension.alerts = true;
     options.extension.math_dollars = true;
     options.extension.math_code = true;
+    // Emit heading anchors so #fragment links (incl. [[Note#Heading]]) land.
+    // Empty prefix → id == bare slug == href fragment (no user-content- prefix).
+    options.extension.header_id_prefix = Some(String::new());
     options
 }
 

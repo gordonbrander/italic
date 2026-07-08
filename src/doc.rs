@@ -1,5 +1,6 @@
 use crate::frontmatter;
 use crate::permalink;
+use crate::slug;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;

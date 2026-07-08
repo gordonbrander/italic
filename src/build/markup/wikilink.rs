@@ -1,6 +1,7 @@
 use crate::doc::{Doc, DocMeta};
 use crate::html;
 use crate::permalink;
+use crate::slug;
 use comrak::nodes::{AstNode, NodeValue};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -65,15 +66,24 @@ pub fn resolve_in_ast<'a>(
         .collect();
 
     for node in wikilinks {
-        let target = match &node.data.borrow().value {
+        let raw = match &node.data.borrow().value {
             NodeValue::WikiLink(w) => w.url.clone(),
             _ => continue,
         };
         let display = node_text(node);
 
-        let replacement = match resolve(&target, &source.id_path, stem_index) {
+        // Split off a `#heading` fragment before resolving, so the note lookup
+        // key stays clean (`note`, not `note-heading`). The fragment is
+        // slugified with the same canonical slugifier comrak's heading ids use.
+        let (link_target, fragment) = split_target_fragment(&raw);
+
+        let replacement = match resolve(link_target, &source.id_path, stem_index) {
             Some(doc) => {
-                let url = permalink::to_url(&doc.output_path);
+                let mut url = permalink::to_url(&doc.output_path);
+                if let Some(frag) = fragment.filter(|f| !f.is_empty()) {
+                    url.push('#');
+                    url.push_str(&slug::slugify(frag));
+                }
                 if !links.contains(&doc.id_path) {
                     links.push(doc.id_path.clone());
                 }
@@ -128,6 +138,18 @@ pub(super) fn split_prefix_stem(target: &str) -> (Option<&str>, &str) {
     match target.rfind('/') {
         Some(idx) => (Some(&target[..idx]), &target[idx + 1..]),
         None => (None, target),
+    }
+}
+
+/// Split a wikilink target into its link portion and an optional heading
+/// fragment: `"dir/Note#Heading"` → `("dir/Note", Some("Heading"))`. Splits on
+/// the **first** `#`, so the note portion never carries a fragment. Kept out of
+/// [`split_prefix_stem`] (shared with the media pass) since asset targets like
+/// `report.pdf` don't take fragments.
+fn split_target_fragment(target: &str) -> (&str, Option<&str>) {
+    match target.find('#') {
+        Some(i) => (&target[..i], Some(&target[i + 1..])),
+        None => (target, None),
     }
 }
 
@@ -469,5 +491,87 @@ mod tests {
             3
         );
         assert_eq!(dir_distance(Path::new("a/b/c"), Path::new("a/x/y")), 4);
+    }
+
+    #[test]
+    fn split_target_fragment_cases() {
+        assert_eq!(split_target_fragment("Note"), ("Note", None));
+        assert_eq!(
+            split_target_fragment("Note#Heading"),
+            ("Note", Some("Heading"))
+        );
+        assert_eq!(
+            split_target_fragment("dir/Note#Heading"),
+            ("dir/Note", Some("Heading"))
+        );
+        // First `#` only: a second `#` stays in the fragment.
+        assert_eq!(split_target_fragment("Note#a#b"), ("Note", Some("a#b")));
+        assert_eq!(split_target_fragment("Note#"), ("Note", Some("")));
+    }
+
+    #[test]
+    fn resolves_heading_fragment() {
+        let source = source_doc("blog/a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("blog/b.md")];
+        let (out, links) = render_md("see [[b#Some Heading]]", &source, &docs);
+        assert!(
+            out.contains(r#"href="/blog/b.html#some-heading""#),
+            "got: {out}"
+        );
+        assert_eq!(links, vec![PathBuf::from("blog/b.md")]);
+    }
+
+    #[test]
+    fn resolves_prefix_plus_fragment() {
+        let source = source_doc("a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("blog/b.md")];
+        let (out, _) = render_md("[[blog/b#Heading]]", &source, &docs);
+        assert!(out.contains(r#"href="/blog/b.html#heading""#), "got: {out}");
+    }
+
+    #[test]
+    fn fragment_with_display_label() {
+        let source = source_doc("a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("b.md")];
+        let (out, _) = render_md("[[b#Heading|click here]]", &source, &docs);
+        assert!(
+            out.contains(r#"href="/b.html#heading">click here</a>"#),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn fragment_on_permalink_dir_url() {
+        let source = source_doc("a.md");
+        let docs = vec![
+            DocMeta::from(&source),
+            doc_with_permalink("b.md", "blog/b/index.html"),
+        ];
+        let (out, _) = render_md("[[b#Heading]]", &source, &docs);
+        assert!(out.contains(r#"href="/blog/b/#heading""#), "got: {out}");
+    }
+
+    #[test]
+    fn unresolved_note_with_fragment_is_nolink() {
+        let source = source_doc("a.md");
+        let docs = vec![DocMeta::from(&source)];
+        let (out, links) = render_md("[[Missing#Heading]]", &source, &docs);
+        // The whole target (incl. `#Heading`) renders as the nolink label; no
+        // anchor/href is produced since the note didn't resolve.
+        assert!(
+            out.contains(r#"<span class="nolink">Missing#Heading</span>"#),
+            "got: {out}"
+        );
+        assert!(!out.contains("<a "), "no anchor emitted: {out}");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn empty_fragment_appends_no_hash() {
+        let source = source_doc("a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("b.md")];
+        let (out, _) = render_md("[[b#]]", &source, &docs);
+        assert!(out.contains(r#"href="/b.html">"#), "got: {out}");
+        assert!(!out.contains("/b.html#"), "no trailing hash: {out}");
     }
 }

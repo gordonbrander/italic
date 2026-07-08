@@ -12,6 +12,7 @@ pub mod permalink;
 pub mod query;
 pub mod related;
 pub mod site_data;
+pub mod slug;
 pub mod taxonomy;
 pub mod tera_env;
 #[cfg(test)]
