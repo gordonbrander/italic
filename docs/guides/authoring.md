@@ -10,7 +10,8 @@ Italic renders [GitHub-flavored Markdown](https://github.github.com/gfm/) and
 is compatible with [Obsidian Markdown](https://help.obsidian.md/syntax),
 including:
 
-- `[[Wikilinks]]` with Obsidian-style fuzzy resolution — see
+- `[[Wikilinks]]` with Obsidian-style fuzzy resolution, including heading
+  (`[[Note#Heading]]`) and block (`[[Note#^abc123]]`) references — see
   [Wikilinks & backlinks](wikilinks.md)
 - Inline `#hashtags` lifted into your tags (when enabled) — see
   [Taxonomies & hashtags](taxonomies.md)

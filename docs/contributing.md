@@ -38,7 +38,9 @@ docs/              # this documentation; internal notes in docs/notes/
 
 The build pipeline's stage order and data contracts are documented in the
 module comment at the top of `src/build.rs`, and at user level in
-[The build pipeline](concepts/build-pipeline.md).
+[The build pipeline](concepts/build-pipeline.md). How the markup stage layers
+wikilinks, block references, and embeds on top of comrak is covered in
+[Extending Comrak](dev/markup.md).
 
 ## Tests
 

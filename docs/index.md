@@ -48,3 +48,4 @@ to a complete reference of every config key and template filter.
 
 - [Troubleshooting](troubleshooting.md)
 - [Contributing](contributing.md)
+- [Extending Comrak](dev/markup.md)
