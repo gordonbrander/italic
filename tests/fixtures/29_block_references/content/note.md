@@ -7,6 +7,17 @@ A claim worth citing. ^abc123
 
 A case-folded marker. ^Cap-1
 
-A lone marker line stays literal:
+| col | val |
+| --- | --- |
+| a   | 1   |
 
-^standalone
+^table1
+
+```
+fenced code
+```
+^fence1
+
+> A quoted claim.
+
+^quote1

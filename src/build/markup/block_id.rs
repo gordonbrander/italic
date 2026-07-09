@@ -1,18 +1,29 @@
 use crate::html;
 use crate::slug;
 use comrak::Arena;
-use comrak::nodes::{Ast, AstNode, LineColumn, NodeValue};
+use comrak::nodes::{Ast, AstNode, LineColumn, NodeHtmlBlock, NodeValue};
 use std::cell::RefCell;
 use std::collections::HashSet;
 
 /// Strip Obsidian block-id markers (`^blockid`) from a parsed comrak AST and
 /// plant an anchor in their place, so `[[Note#^blockid]]` has somewhere to land.
+/// Two marker positions, mirroring Obsidian:
 ///
-/// A marker is a `^` at a word boundary followed by a run of `[A-Za-z0-9-]`,
-/// sitting at the very end of a paragraph or heading. The marker is removed from
-/// the text and the block gains a trailing
-/// `<span class="block-anchor" id="…"></span>`, rendered verbatim because the
-/// markup env sets `render.unsafe_`.
+/// - **Trailing** — `^blockid` ending a paragraph or heading (a list item's
+///   content is a paragraph, so items are covered). The marker is stripped and
+///   the block gains a trailing `<span class="block-anchor" id="…"></span>`.
+/// - **Standalone** — a paragraph consisting of nothing but `^blockid`, which
+///   tags the block *above* it. The only way to reference a table, code fence, or
+///   blockquote, none of which have anywhere to put a trailing marker. The
+///   marker paragraph is removed and the anchor is inserted **before** its
+///   previous sibling.
+///
+/// Both anchors render verbatim because the markup env sets `render.unsafe_`.
+/// A standalone anchor goes *before* the block rather than replacing the marker
+/// after it: the scroll target is the whole point, and an anchor below a long
+/// table lands the reader at its bottom edge. The trailing form appends inside
+/// its block instead, which is fine precisely because a paragraph, heading, or
+/// list item is short enough that the anchor's position within it is invisible.
 ///
 /// The id is the marker body run through [`slug::slugify`] — the same slugifier
 /// [`super::wikilink`] applies to a link fragment. `slugify` drops the `^`, so
@@ -20,17 +31,25 @@ use std::collections::HashSet;
 /// this pass only has to make the anchor agree. Slugifying also makes block ids
 /// case-insensitive, as in Obsidian.
 ///
-/// Two deliberate limits, both documented in `docs/guides/migration.md`:
-/// - Only a *trailing* marker is recognized. Obsidian also allows one on its own
-///   line after a code fence, table, or blockquote; such a line stays literal.
-/// - Block ids share the anchor namespace with heading slugs, so a `^overview`
-///   marker and an `## Overview` heading collide.
+/// Markers left literal, all quiet failures in the spirit of `super::media`'s
+/// `![[missing.png]]`:
+/// - one not preceded by whitespace (`page^abc`), or not ending its block;
+/// - a standalone marker with no previous sibling — there is nothing to tag;
+/// - a lazy continuation, so `> quoted` immediately followed by `^q1` (no blank
+///   line) keeps `^q1` inside the quote's paragraph, where it is neither
+///   trailing-after-whitespace nor a standalone paragraph.
 ///
-/// A marker that isn't preceded by whitespace (`page^abc`) or that stands alone
-/// as a whole paragraph is left literal — the quiet failure `super::media` chose
-/// for `![[missing.png]]`. Scanning `Text` nodes rather than the raw source
-/// makes the pass code-aware for free: a `^abc` inside a fence or code span
-/// never reaches a `Text` node.
+/// Scanning `Text` nodes rather than the raw source makes the pass code-aware
+/// for free: a `^abc` inside a fence or code span never reaches a `Text` node.
+///
+/// One parse-level trap the pass cannot see, documented in
+/// `docs/guides/wikilinks.md`: a marker on the line directly after a **table**
+/// is swallowed by GFM as another table row. Tables need a blank line before
+/// the marker; fences don't care.
+///
+/// Block ids share the anchor namespace with heading slugs, so a `^overview`
+/// marker collides with an `## Overview` heading. A duplicate id within one
+/// document anchors the first block only.
 pub fn resolve_in_ast<'a>(arena: &'a Arena<'a>, root: &'a AstNode<'a>) {
     // Collect first, then mutate: detaching a node's children mid-traversal
     // would disturb the `descendants()` iterator — the discipline every pass in
@@ -47,6 +66,26 @@ pub fn resolve_in_ast<'a>(arena: &'a Arena<'a>, root: &'a AstNode<'a>) {
 
     let mut seen: HashSet<String> = HashSet::new();
     for block in blocks {
+        // Standalone first: a paragraph that is nothing but a marker can't also
+        // carry a trailing one, and `split_marker` would reject it anyway.
+        if let Some(body) = standalone_marker(block) {
+            let Some(target) = block.previous_sibling() else {
+                // Nothing above to tag — leave the marker literal.
+                continue;
+            };
+            block.detach();
+            if let Some(id) = claim(&mut seen, &body) {
+                target.insert_before(new_node(
+                    arena,
+                    NodeValue::HtmlBlock(NodeHtmlBlock {
+                        block_type: 0,
+                        literal: anchor_html(&id),
+                    }),
+                ));
+            }
+            continue;
+        }
+
         // A list item wraps its content in a Paragraph, so `- item ^xyz` needs
         // no `Item` special case. Appending an *inline* node (not a block
         // sibling) keeps the output valid inside tight lists, where comrak
@@ -71,35 +110,78 @@ pub fn resolve_in_ast<'a>(arena: &'a Arena<'a>, root: &'a AstNode<'a>) {
             last.data.borrow_mut().value = NodeValue::Text(rest.to_string().into());
         }
 
-        let id = slug::slugify(body);
-        if !seen.insert(id.clone()) {
-            eprintln!("duplicate block id ^{id}: anchored the first block only");
-            continue;
+        if let Some(id) = claim(&mut seen, body) {
+            block.append(new_node(arena, NodeValue::HtmlInline(anchor_html(&id))));
         }
-        let anchor = format!(
-            r#"<span class="block-anchor" id="{}"></span>"#,
-            html::escape(&id)
-        );
-        block.append(arena.alloc(AstNode::new(RefCell::new(Ast::new(
-            NodeValue::HtmlInline(anchor),
-            LineColumn { line: 0, column: 0 },
-        )))));
     }
+}
+
+/// Slugify a marker body and claim the id for this document, or `None` if some
+/// earlier block already took it. Either way the caller has already stripped the
+/// marker text — a duplicate loses its anchor, not its cleanup.
+fn claim(seen: &mut HashSet<String>, body: &str) -> Option<String> {
+    let id = slug::slugify(body);
+    if !seen.insert(id.clone()) {
+        eprintln!("duplicate block id ^{id}: anchored the first block only");
+        return None;
+    }
+    Some(id)
+}
+
+fn anchor_html(id: &str) -> String {
+    format!(
+        r#"<span class="block-anchor" id="{}"></span>"#,
+        html::escape(id)
+    )
+}
+
+fn new_node<'a>(arena: &'a Arena<'a>, value: NodeValue) -> &'a AstNode<'a> {
+    arena.alloc(AstNode::new(RefCell::new(Ast::new(
+        value,
+        LineColumn { line: 0, column: 0 },
+    ))))
+}
+
+fn is_id_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-'
+}
+
+/// The marker body of a paragraph that consists of *nothing but* `^blockid` —
+/// Obsidian's way of tagging the block above. Emptiness is checked on the node,
+/// not the text: `*em*\n^abc` also ends in a `Text` of `"^abc"`, but it has
+/// siblings, and must stay literal.
+fn standalone_marker<'a>(block: &'a AstNode<'a>) -> Option<String> {
+    if !matches!(block.data.borrow().value, NodeValue::Paragraph) {
+        return None;
+    }
+    let only = block.first_child()?;
+    if only.next_sibling().is_some() {
+        return None;
+    }
+    let text = match &only.data.borrow().value {
+        NodeValue::Text(t) => t.clone(),
+        _ => return None,
+    };
+    let body = text.trim().strip_prefix('^')?;
+    if body.is_empty() || !body.chars().all(is_id_char) {
+        return None;
+    }
+    Some(body.to_string())
 }
 
 /// Split a trailing `^blockid` marker off a block's final text run:
 /// `"A claim. ^abc-1"` → `Some(("A claim.", "abc-1"))`. `None` when the run
 /// doesn't end in a marker, when the `^` isn't preceded by whitespace
-/// (`page^abc`), or when the marker is the whole run (a lone `^abc` paragraph).
+/// (`page^abc`), or when the caret opens the run — the last of which is what
+/// keeps `*em*\n^abc` literal, since [`standalone_marker`] has already declined
+/// that paragraph.
 fn split_marker(text: &str) -> Option<(&str, &str)> {
     let trimmed = text.trim_end();
     let caret = trimmed.rfind('^')?;
     let body = &trimmed[caret + 1..];
-    if body.is_empty() || !body.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if body.is_empty() || !body.chars().all(is_id_char) {
         return None;
     }
-    // `next_back()` is `None` when the caret opens the run, which is what keeps a
-    // standalone `^abc` paragraph literal.
     if !trimmed[..caret].chars().next_back()?.is_whitespace() {
         return None;
     }
@@ -116,6 +198,7 @@ mod tests {
         let arena = comrak::Arena::new();
         let mut options = comrak::Options::default();
         options.render.r#unsafe = true;
+        options.extension.table = true;
         let root = comrak::parse_document(&arena, body, &options);
         resolve_in_ast(&arena, root);
         let mut out = String::new();
@@ -184,11 +267,123 @@ mod tests {
     }
 
     #[test]
-    fn lone_marker_paragraph_stays_literal() {
-        // The standalone-line form Obsidian uses for tables and fences is not
-        // supported; it must not silently eat the paragraph.
-        let html = render_md("^abc123");
-        assert_eq!(html, "<p>^abc123</p>\n");
+    fn standalone_marker_anchors_a_table() {
+        // A blank line is required: GFM otherwise reads the marker as another
+        // table row. See `table_without_blank_line_is_a_row`.
+        let html = render_md("| a |\n| - |\n| 1 |\n\n^table1");
+        let anchor = r#"<span class="block-anchor" id="table1"></span>"#;
+        assert!(html.contains(anchor), "got: {html}");
+        // The anchor must precede the table — an anchor below it would scroll
+        // the reader to the table's bottom edge.
+        assert!(
+            html.find(anchor).unwrap() < html.find("<table>").unwrap(),
+            "anchor must come before the table: {html}"
+        );
+        assert!(!html.contains('^'));
+    }
+
+    #[test]
+    fn standalone_marker_anchors_a_code_fence() {
+        // Fences need no blank line — the marker line closes nothing.
+        let html = render_md("```\ncode\n```\n^fence1");
+        let anchor = r#"<span class="block-anchor" id="fence1"></span>"#;
+        assert!(html.contains(anchor), "got: {html}");
+        assert!(html.find(anchor).unwrap() < html.find("<pre>").unwrap());
+        assert!(html.contains("code"));
+    }
+
+    #[test]
+    fn standalone_marker_anchors_a_blockquote() {
+        let html = render_md("> quoted\n\n^q1");
+        let anchor = r#"<span class="block-anchor" id="q1"></span>"#;
+        assert!(html.contains(anchor), "got: {html}");
+        assert!(html.find(anchor).unwrap() < html.find("<blockquote>").unwrap());
+    }
+
+    #[test]
+    fn standalone_marker_anchors_a_paragraph() {
+        let html = render_md("Some claim.\n\n^p1");
+        assert!(html.contains(r#"<span class="block-anchor" id="p1"></span>"#));
+        assert_eq!(html.matches("<p>").count(), 1, "marker <p> removed: {html}");
+    }
+
+    #[test]
+    fn standalone_marker_with_nothing_above_stays_literal() {
+        // First node in the document — there is no block to tag.
+        let html = render_md("^orphan\n\ntext");
+        assert!(html.contains("<p>^orphan</p>"), "got: {html}");
+        assert!(!html.contains("block-anchor"));
+    }
+
+    #[test]
+    fn soft_break_before_marker_stays_literal() {
+        // `Paragraph(Emph, SoftBreak, Text("^abc"))` — the marker text is the
+        // last child but the paragraph is not *only* the marker. This is the
+        // regression the node-level only-child check exists to prevent.
+        let html = render_md("*em*\n^abc");
+        assert!(html.contains("^abc"), "got: {html}");
+        assert!(!html.contains("block-anchor"));
+    }
+
+    #[test]
+    fn table_without_blank_line_is_a_row() {
+        // Not a behavior we choose — GFM swallows the marker line as a row
+        // before the pass ever sees it. Pinned so the docs stay honest.
+        let html = render_md("| a |\n| - |\n| 1 |\n^table1");
+        assert!(html.contains("^table1"), "got: {html}");
+        assert!(!html.contains("block-anchor"));
+    }
+
+    #[test]
+    fn lazy_continuation_into_blockquote_stays_literal() {
+        // No blank line: `^q1` folds into the quote's paragraph after a
+        // SoftBreak, so it is neither standalone nor trailing-after-whitespace.
+        let html = render_md("> quoted\n^q1");
+        assert!(html.contains("^q1"), "got: {html}");
+        assert!(!html.contains("block-anchor"));
+    }
+
+    #[test]
+    fn standalone_marker_after_a_list_keeps_it_tight() {
+        // The blank line ends the list rather than loosening it, so items stay
+        // `<li>a</li>` and the whole list gets the anchor.
+        let html = render_md("- a\n- b\n\n^list1");
+        assert!(html.contains("<li>a</li>"), "list went loose: {html}");
+        let anchor = r#"<span class="block-anchor" id="list1"></span>"#;
+        assert!(html.find(anchor).unwrap() < html.find("<ul>").unwrap());
+    }
+
+    #[test]
+    fn standalone_marker_is_slugified_like_a_trailing_one() {
+        let html = render_md("Some claim.\n\n^Cap-1");
+        assert!(html.contains(r#"id="cap-1""#), "got: {html}");
+    }
+
+    #[test]
+    fn duplicate_across_both_forms_anchors_the_first() {
+        let html = render_md("Trailing. ^dup\n\nSome claim.\n\n^dup");
+        assert_eq!(html.matches("block-anchor").count(), 1, "got: {html}");
+        // The losing marker is still stripped, not left as visible text.
+        assert!(!html.contains('^'), "got: {html}");
+    }
+
+    #[test]
+    fn consecutive_standalone_markers_both_anchor_the_block_above() {
+        let html = render_md("Some claim.\n\n^a\n\n^b");
+        assert!(html.contains(r#"id="a""#) && html.contains(r#"id="b""#));
+        assert_eq!(
+            html.matches("<p>").count(),
+            1,
+            "both markers removed: {html}"
+        );
+        assert!(!html.contains('^'));
+    }
+
+    #[test]
+    fn standalone_marker_rejects_non_id_characters() {
+        let html = render_md("Some claim.\n\n^ab_c");
+        assert!(html.contains("^ab_c"), "got: {html}");
+        assert!(!html.contains("block-anchor"));
     }
 
     #[test]

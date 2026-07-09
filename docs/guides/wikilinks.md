@@ -35,32 +35,53 @@ that doesn't exist still links to the note (it just lands at the top).
 becomes `/guide.html#getting-started`. Hand-written `[Markdown](/guide.html#getting-started)`
 links land too.
 
-**Blocks.** Tag any paragraph, heading, or list item with a trailing `^blockid`
-marker — Obsidian's block-id syntax — and link to it with `[[Note#^blockid]]`:
+**Blocks.** Tag a block with a `^blockid` marker — Obsidian's block-id syntax —
+and link to it with `[[Note#^blockid]]`. A marker goes at the **end of a
+paragraph, heading, or list item**, preceded by a space:
 
 ```markdown
-<!-- in note.md -->
 A claim worth citing. ^abc123
 
 - a list item ^xyz789
-
-<!-- from anywhere -->
-See [[note#^abc123]] and the [[note#^xyz789|list item]].
 ```
 
-The marker is stripped from the rendered text and replaced with an anchor:
+Blocks with nowhere to put a trailing marker — tables, code fences, blockquotes,
+whole lists — take one **alone on its own line**, tagging the block above it:
+
+```markdown
+| col | val |
+| --- | --- |
+| a   | 1   |
+
+^table1
+```
+
+Either way the marker is stripped and replaced with an anchor. A trailing marker
+anchors inside its block; a standalone one anchors just before the block it tags,
+so a link lands at the top of a long table rather than its bottom edge:
 
 ```html
 <p>A claim worth citing.<span class="block-anchor" id="abc123"></span></p>
+
+<span class="block-anchor" id="table1"></span>
+<table>…</table>
+```
+
+Link to any of them from anywhere:
+
+```markdown
+See [[note#^abc123]], the [[note#^xyz789|list item]], and [[note#^table1]].
 ```
 
 Block ids may contain letters, digits, and dashes, and are case-insensitive
-(`^Abc-1` and `^abc-1` are the same id). Three things to know:
+(`^Abc-1` and `^abc-1` are the same id). Four things to know:
 
-- The marker must sit at the **end of a paragraph, heading, or list item**,
-  preceded by a space. Obsidian also allows a marker on its own line to tag the
-  block above it (how it tags tables, code fences, and blockquotes); italic does
-  not, and such a line renders literally.
+- **A standalone marker needs a blank line before it after a table** — without
+  one, Markdown reads the marker as another table row. After a code fence the
+  blank line is optional; after a blockquote or a list it's required (a marker on
+  the line right after `> quoted` becomes part of the quote).
+- A standalone marker with nothing above it — the first thing in a file — tags
+  nothing and renders literally.
 - Block ids share the anchor namespace with heading slugs, so a `^overview`
   marker collides with an `## Overview` heading on the same page.
 - A duplicate id within one page anchors the first block only.

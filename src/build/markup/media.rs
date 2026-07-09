@@ -432,7 +432,10 @@ mod tests {
         let out = render_md("before ![[x.png]] after", &source, &["x.png"], "");
         assert!(out.contains("before "), "got: {out}");
         assert!(out.contains("after"), "got: {out}");
-        assert!(out.contains(r#"<img class="embed" src="/x.png""#), "got: {out}");
+        assert!(
+            out.contains(r#"<img class="embed" src="/x.png""#),
+            "got: {out}"
+        );
     }
 
     #[test]
