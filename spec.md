@@ -277,6 +277,14 @@ must match the candidate's parent directory exactly (no suffix matching); a
 prefix with no match resolves to nothing, rather than falling back to a bare
 stem lookup. `[[/Name]]` (empty prefix) matches only root-level docs.
 
+**Fragments:** a `#fragment` after the target (split on the **first** `#`) is
+peeled off *before* resolution, so the note lookup key stays clean, then
+slugified and appended to the resolved URL. `[[Note#Heading]]` lands on the `id`
+the Markdown renderer emits for that heading; `[[Note#^blockid]]` lands on a
+block anchor (§8.2). Because the canonical slugifier drops `^`, both forms share
+one code path — a `^blockid` fragment needs no special case. A fragment naming
+something that doesn't exist still links to the note.
+
 Implementation: we can simply layer this render pass before or after a standard Markdown render.
 Since Wikilink syntax is not part of Markdown, the renderer won't touch it.
 
@@ -308,6 +316,25 @@ they stay correct regardless of the referencing page's `permalink`:
 References that resolve to no asset are left untouched (external URLs,
 root-absolute paths, and relative paths with no matching file), and embed syntax
 resolves media files only — it does not transclude another note's body.
+
+### 8.2 Block ids
+
+Obsidian tags a block for reference with a trailing `^blockid` marker. A markup
+pass — the **first** of the AST passes, ahead of media, since the media pass
+collapses a whole text run containing `![[` into one raw-HTML node and would
+otherwise swallow the marker — strips each marker and appends
+`<span class="block-anchor" id="…"></span>` to its block. The id is the marker
+body run through the canonical slugifier, the same one applied to a link
+fragment, which is what makes `[[Note#^blockid]]` land.
+
+A marker is a `^` preceded by whitespace, followed by a run of `[A-Za-z0-9-]`,
+at the very **end of a paragraph or heading** (a list item's content is a
+paragraph, so items are covered). Deliberate limits: a marker alone on a line —
+Obsidian's way of tagging a table, fence, or blockquote — is not recognized and
+stays literal; block ids share the anchor namespace with heading slugs; and a
+duplicate id within one document anchors the first block only. Because the pass
+scans parsed `Text` nodes, a `^abc` inside a code span or fence never reaches
+it.
 
 ---
 

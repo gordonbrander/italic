@@ -10,6 +10,13 @@ The happy path — italic is built for this. Copy (or symlink) your vault into
 
 - `[[Wikilinks]]` and `[[Wikilinks|aliases]]` resolve with the same fuzzy
   matching algorithm Obsidian uses; backlinks come for free.
+- Heading references (`[[Note#Heading]]`) and block references
+  (`[[Note#^abc123]]`) both resolve, and a trailing `^blockid` marker becomes an
+  anchor rather than visible text. Two differences from Obsidian, both in
+  [wikilinks](wikilinks.md#linking-into-a-page): a block marker must end a
+  paragraph, heading, or list item (a marker alone on a line — how Obsidian tags
+  tables and code fences — renders literally), and block ids share the anchor
+  namespace with heading slugs.
 - Inline `#hashtags` lift into the `tags` taxonomy with `hashtags: true`.
 - **Attachments kept beside your notes just work.** Drop images and other media
   anywhere under `content/` — next to the note that uses them, or in a shared

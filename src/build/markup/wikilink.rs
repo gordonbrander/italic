@@ -543,6 +543,18 @@ mod tests {
         assert_eq!(links, vec![PathBuf::from("blog/b.md")]);
     }
 
+    /// Block references need no code here: `slugify` drops the `^`, so the href
+    /// already matches the anchor id `super::block_id` plants. Pinned so a future
+    /// change to the slugifier's permitted characters can't silently break them.
+    #[test]
+    fn resolves_block_reference_fragment() {
+        let source = source_doc("blog/a.md");
+        let docs = vec![DocMeta::from(&source), doc_at("blog/b.md")];
+        let (out, links) = render_md("see [[b#^Abc-1]]", &source, &docs);
+        assert!(out.contains(r#"href="/blog/b.html#abc-1""#), "got: {out}");
+        assert_eq!(links, vec![PathBuf::from("blog/b.md")]);
+    }
+
     #[test]
     fn resolves_prefix_plus_fragment() {
         let source = source_doc("a.md");

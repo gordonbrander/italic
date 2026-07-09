@@ -16,9 +16,11 @@ index the previous stage left behind. Knowing the order explains most
 3. **Apply defaults** — fill each collection member's missing frontmatter from
    the collection's `defaults:` entry.
 4. **Render markup** *(parallel)* — each body runs through a content-phase
-   Tera render (macros, partials), then the Markdown renderer, with wikilink
-   resolution and the optional hashtag pass (which adds to each doc's `tags`).
-   Resolved wikilinks are recorded as the doc's outgoing links.
+   Tera render (macros, partials), then the Markdown renderer. Four passes run
+   over the parsed AST, in order: block ids (`^blockid` markers → anchors),
+   co-located media, wikilink resolution, and the optional hashtag pass (which
+   adds to each doc's `tags`). Resolved wikilinks are recorded as the doc's
+   outgoing links.
 5. **Classify taxonomies and backlinks** — taxonomy terms are bucketed *after*
    markup (the hashtag pass can add terms), and the wikilink graph is inverted
    into backlinks. The index is now complete and is **frozen** — nothing

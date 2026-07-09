@@ -1,3 +1,4 @@
+pub(crate) mod block_id;
 pub(crate) mod hashtag;
 pub(crate) mod media;
 pub(crate) mod wikilink;
@@ -66,9 +67,13 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
         DocKind::Markdown => {
             let arena = comrak::Arena::new();
             let root = comrak::parse_document(&arena, &rendered, &env.options);
-            // Media runs first so it can claim references that point at assets
-            // (`![](x.png)`, `![[x.png]]`, `[[x.pdf]]`), leaving plain note links
-            // for the wikilink pass.
+            // Block ids run before media: media collapses a whole `Text` node
+            // containing `![[` into one `HtmlInline`, which would swallow the
+            // trailing marker in `![[img.png]] ^abc`.
+            block_id::resolve_in_ast(&arena, root);
+            // Media runs before wikilinks so it can claim references that point
+            // at assets (`![](x.png)`, `![[x.png]]`, `[[x.pdf]]`), leaving plain
+            // note links for the wikilink pass.
             media::resolve_in_ast(root, doc, &env.asset_index, &env.base_path);
             doc.links = wikilink::resolve_in_ast(root, doc, &env.stem_index);
             // Inline `#hashtag`s (opt-in): extracted into the built-in `tags`
