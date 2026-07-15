@@ -2,7 +2,7 @@
 
 _Publish your digital garden to the Atmosphere_
 
-Publish your blog, markdown notes, or [Obsidian Vault](https://obsidian.md) to [Bluesky](https://bsky.app) and the web. Think in public, build your audience, own your data.
+Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blogs, wikis, and websites that you can publish to [Bluesky](https://bsky.app) and the web. Think in public, build your audience, own your data.
 
 - **Blog-aware**: custom taxonomies, theming, archives, rss and more
 - **Obsidian-compatible**: Wikilinks, backlinks, block references and support for Obsidian-flavored Markdown.
