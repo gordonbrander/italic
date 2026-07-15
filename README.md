@@ -1,29 +1,53 @@
 # Italic
 
-A static site generator for [digital gardens](https://maggieappleton.com/garden-history).
+_Publish your digital garden to the Atmosphere_
 
-- Built for thinkers: wikilinks, backlinks, custom collections, related notes, custom taxonomies, and more.
-- Batteries included: One binary with everything you need. Zero config required.
-- Fast: Build thousands of pages in < 1s. Written in Rust with an embarrassingly parallel rendering pipeline.
+Publish your blog, markdown notes, or [Obsidian Vault](https://obsidian.md) to [Bluesky](https://bsky.app) and the web. Think in public, build your audience, own your data.
 
-## Features
+- **Blog-aware**: custom taxonomies, theming, archives, rss and more
+- **Obsidian-compatible**: Wikilinks, backlinks, block references and support for Obsidian-flavored Markdown.
+- **ATProto-enabled**: publish to [Bluesky](https://bsky.app) and [ATProto](https://atproto.com/), with support for bsky and [standard.site](https://standard.site/) records.
 
-Italic makes it easy to publish a digital garden from your
-[Obsidian Vault](https://obsidian.md/), or any other folder full of Markdown.
+## Why Italic?
 
-- Markdown extensions: compatible with [GitHub-flavored Markdown](https://github.github.com/gfm/) and [Obsidian Markdown](https://obsidian.md/help/syntax)
-- Wikilinks: fuzzy link matching using the same algorithm as Obsidian
-- Backlinks: see what links into a page
-- Hashtags: auto-appended to tags and stripped from output
-- Related: surface related pages, scored over taxonomies and the link graph
+- **Fast**: Written in Rust with an embarrassingly parallel build pipeline. Generate thousands of pages in milliseconds.
+- **Flexible**: make your corner of the web your own with deep theming, powerful macros, custom taxonomies, configurable collections
+- **Free**: open source
 
-Plus everything else you'd expect from a static site generator, and a few extras:
+## Feature list
 
-- Blog-aware: publish multiple blogs from the same site
-- Custom collections: a powerful query system collects pages into any grouping you want
-- Multiple taxonomies: categorize by tag, series, publication, phase of the moon — no problem
-- Themes, powerful [Tera](https://keats.github.io/tera/docs) templates, shortcodes
-- Archives, drafts, RSS feeds, sitemaps, and more
+Italic comes with everything you need to publish a blog, personal wiki, documentation site, or project site.
+
+- **Content**
+  - Callouts
+  - Macros (shortcodes): define custom macros you can use in your Markdown for YouTube embeds, UI widgets, and use them in your .
+- **Digital gardens and wikis**
+  - Obsidian-flavored Markdown: supports loads of [Obsidian Markdown extensions](https://obsidian.md/help/syntax). 
+  - Wikilinks: fuzzy link matching using the same algorithm as Obsidian
+  - Backlinks: see everything that links back to a page.
+  - Block references: deep link to headings and blocks with Obsidian-style purple links.
+  - Hashtags: lifted up to tag taxonomy
+  - Related pages: Surface related posts with a customizable algorithm
+  - Obsidian Vaults: seamlessly transform your Vault into a website.
+- **Blogging**
+  - Draft posts
+  - Tags
+  - Archives: paginated archival posts
+  - RSS
+  - Publish multiple blogs on the same site (custom collections)
+- **Content-driven websites**
+  - Custom taxonomies: organize posts by tag, category, artist, label, phase of the moon — no problem.
+  - Custom collections: glob-match files to define custom page collections you can use in templates
+  - Page trees: organize pages into a tree for menus
+- **Theming**
+  - [Tera templates](https://keats.github.io/tera/): blazingly fast Jinja-like templates in Rust with support for template functions, filters, macros, template extension, and more.
+  - Lots of built-in custom filters and functions
+- **SEO**
+  - Social cards: automatically add metadata for Twitter Cards, [Facebook Open Graph](https://ogp.me/), [schema.org](https://schema.org/) and more.
+  - [sitemap.xml](https://www.sitemaps.org/protocol.html) support
+- **ATProto integration**
+  - Bluesky microblogging
+  - standard.site integration
 
 ## Install
 
