@@ -8,15 +8,7 @@ Publish your blog, markdown notes, or [Obsidian Vault](https://obsidian.md) to [
 - **Obsidian-compatible**: Wikilinks, backlinks, block references and support for Obsidian-flavored Markdown.
 - **ATProto-enabled**: publish to [Bluesky](https://bsky.app) and [ATProto](https://atproto.com/), with support for bsky and [standard.site](https://standard.site/) records.
 
-## Why Italic?
-
-- **Fast**: Written in Rust with an embarrassingly parallel build pipeline. Generate thousands of pages in milliseconds.
-- **Flexible**: make your corner of the web your own with deep theming, powerful macros, custom taxonomies, configurable collections
-- **Free**: open source
-
-## Feature list
-
-Italic comes with everything you need to publish a blog, personal wiki, documentation site, or project site.
+## Features
 
 - **Markup**
   - [Github-flavored Markdown](docs/guides/authoring.md)
