@@ -1,8 +1,8 @@
 # Templates
 
 Layouts live in `templates/` and use
-[Tera](https://keats.github.io/tera/docs/), a Jinja-style template language
-with inheritance, includes, and macros. If you've used Jinja2, Liquid, or
+[Tera](https://keats.github.io/tera/) (v2), a Jinja-style template language
+with inheritance, includes, and components. If you've used Jinja2, Liquid, or
 Nunjucks, it will feel familiar.
 
 ## Assigning a template
@@ -53,7 +53,29 @@ Three things to notice:
 
 Use Tera's `{% extends %}`/`{% block %}` for layout inheritance and
 `{% include %}` for partials, exactly as in the
-[Tera docs](https://keats.github.io/tera/docs/#inheritance).
+[Tera docs](https://keats.github.io/tera/).
+
+## Tera 2 notes
+
+Italic uses Tera 2, which tightened a few things over Tera 1 — worth knowing
+if you're porting templates from an older italic site or another Tera 1 tool:
+
+- **Undefined variables error.** `{{ page.missing }}` fails the build instead
+  of printing nothing. Use a fallback (`{{ page.missing or "" }}`), optional
+  chaining (`{{ a?.b?.c or "default" }}`), or guard with `{% if %}` — one level
+  of undefined is allowed in conditions, so `{% if page.missing %}` is fine.
+- **Macros are gone**, replaced by globally-registered
+  [components](components.md) — `{{ youtube::embed(id="x") }}` becomes
+  `{{<youtube.embed id="x" />}}` with no `{% import %}` anywhere.
+- **Filter renames/removals**: `escape` → `escape_html`, `as_str` → `str`,
+  `slugify` → `slug`, `filesizeformat` → `filesize_format`,
+  `linebreaksbr` → `newlines_to_br`, `divisibleby` → `divisible_by`;
+  `concat` and `slice` are gone in favor of native spread
+  (`[...items, extra]`) and Python-style slicing (`items[:5]`, `items[::-1]`);
+  `truncate` now requires `length=`.
+- **New goodies**: map literals (`{"a": 1}`), list comprehensions, ternaries
+  (`{{ "yes" if x else "no" }}`), `{% set %}` blocks with filters, and
+  error messages that point at the exact template span.
 
 ## Available context
 
@@ -80,5 +102,5 @@ generic escape hatch for any other format.
 ## See also
 
 - [Template reference](../reference/templates.md) — every variable, function, and filter
-- [Macros (shortcodes)](macros.md)
+- [Components (shortcodes)](components.md)
 - [Archives, feeds & sitemaps](archives.md) — templates that generate pages

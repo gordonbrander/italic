@@ -6,7 +6,7 @@ Everything is optional — a bare `content/` directory is a buildable site.
 ```
 content/        # Your site content (.md, .html, .yaml) + co-located media
 archives/       # Archive templates (tag pages, feeds, sitemaps — see Archives)
-templates/      # Tera layouts, partials, and macros
+templates/      # Tera layouts, partials, and components
 data/           # YAML files surfaced to templates as {{ data.* }}
 static/         # Copied verbatim into the output
 themes/         # Conventional home for themes referenced via theme: in config.yaml
@@ -44,7 +44,7 @@ tied to a particular note.
 | Directory | Consumed by | Guide |
 |-----------|------------|-------|
 | `content/` | The build pipeline — every `.md`/`.html`/`.yaml` becomes a page; other files become [co-located media](../guides/authoring.md#co-located-media-images-and-attachments) | [Authoring](../guides/authoring.md) |
-| `templates/` | The template phase; `templates/macros/` auto-imports into content | [Templates](../guides/templates.md) |
+| `templates/` | The template phase; components defined here work as shortcodes in content | [Templates](../guides/templates.md) |
 | `archives/` | The archive phase — collection/taxonomy listings, feeds, sitemaps | [Archives](../guides/archives.md) |
 | `data/` | Loaded once, exposed to every template as `{{ data.* }}` | [Data files](../guides/data.md) |
 | `static/` | Copied verbatim over the output as the last build step | [Project layout](#) |

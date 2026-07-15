@@ -3,44 +3,42 @@
 //! out of `page`/`site`, and from re-deriving the absolute-URL prefixing that
 //! `permalink`/`absolute_url` already encode.
 //!
-//! All are registered as **filters** (not functions) so they can be *safe*
-//! (`is_safe() == true`): they emit raw `<meta>`/`<link>`/`<script>` markup, which
-//! Tera's autoescape in `.html`/`.xml` templates would otherwise mangle. This
-//! mirrors the `markdown` and `url` filters (see `src/tera_env/url.rs`). Each
-//! filter pipes its primary subject and takes the rest as kwargs:
+//! All are registered as **filters** (not functions) returning *safe* values
+//! (`Value::safe_string`): they emit raw `<meta>`/`<link>`/`<script>` markup,
+//! which Tera's autoescape in `.html`/`.xml` templates would otherwise mangle.
+//! This mirrors the `markdown` and `url` filters (see `src/tera_env/url.rs`).
+//! Each filter pipes its primary subject; the site data is read from the render
+//! context (`site`) via Tera 2's `State`, so it never needs to be passed in:
 //!
 //! ```html
 //! <head>
-//!   {{ page | metadata(site=site) }}            {# umbrella one-liner #}
+//!   {{ page | metadata }}                       {# umbrella one-liner #}
 //! </head>
 //! ```
 //!
 //! or composed:
 //!
 //! ```html
-//! {{ page | meta_description(site=site) }}
+//! {{ page | meta_description }}
 //! {{ page | meta_keywords }}
 //! {{ page | canonical_link }}
 //! {{ page | standard_link }}
-//! {{ page | open_graph(site=site, type="article") }}
-//! {{ page | twitter_card(site=site) }}
-//! {{ page | json_ld(site=site) }}
+//! {{ page | open_graph(type="article") }}
+//! {{ page | twitter_card }}
+//! {{ page | json_ld }}
 //! {{ site | feed_links }}
 //! ```
 //!
-//! `site_url`/`base_path`/feed names are captured at registration time (the filter
-//! API only hands a filter its piped value + kwargs, never the render context), so
-//! absolute URLs and the feed list don't need to be threaded through templates.
-//! When `site_url` is `None`, URLs fall back to root-relative — same graceful
-//! degradation as the `url` filters.
+//! `site_url`/`base_path`/feed names are captured at registration time, so
+//! absolute URLs and the feed list don't need to be threaded through templates
+//! either. When `site_url` is `None`, URLs fall back to root-relative — same
+//! graceful degradation as the `url` filters.
 
-use super::safe_filter::SafeFilter;
 use crate::html;
 use crate::permalink;
 use serde_json::{Map, Value as Json};
-use std::collections::HashMap;
 use std::path::Path;
-use tera::{Tera, Value};
+use tera::{Kwargs, State, Tera, TeraResult, Value};
 
 /// `<meta name="generator">` content — the engine and its version, from Cargo.
 const GENERATOR: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
@@ -48,10 +46,11 @@ const GENERATOR: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VER
 /// Register every metadata filter on the template env, capturing the site origin,
 /// base path, and configured feed names for absolute-URL/feed composition.
 ///
-/// Each filter pipes its primary subject (`page`, or `site` for `feed_links`) and
-/// reads `site=`/`type=` kwargs via [`site_arg`]/[`type_arg`]; the rendering lives
-/// in the `render_*` functions below. [`SafeFilter`] is the only adapter needed —
-/// it makes each closure a *safe* filter so its markup isn't autoescaped.
+/// Each filter pipes its primary subject (`page`, or `site` for `feed_links`),
+/// reads the site data from the render context via [`site_from`], and takes
+/// `type=` as a kwarg via [`type_arg`]; the rendering lives in the `render_*`
+/// functions below. Each closure wraps its markup in `Value::safe_string` so it
+/// isn't autoescaped.
 pub fn register(
     env: &mut Tera,
     site_url: Option<String>,
@@ -67,70 +66,80 @@ pub fn register(
     let c = cfg.clone();
     env.register_filter(
         "metadata",
-        SafeFilter(move |page: &Value, args: &Kwargs| {
-            render_metadata(page, site_arg(args), type_arg(args), &c)
-        }),
+        move |page: &Value, kwargs: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(render_metadata(page, &site, type_arg(&kwargs)?, &c)))
+        },
     );
 
     env.register_filter(
         "meta_description",
-        SafeFilter(|page: &Value, args: &Kwargs| join(render_description(page, site_arg(args)))),
+        |page: &Value, _: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(join(render_description(page, &site))))
+        },
     );
 
     env.register_filter(
         "meta_keywords",
-        SafeFilter(|page: &Value, _args: &Kwargs| join(render_keywords(page))),
+        |page: &Value, _: Kwargs, _: &State| -> Value { safe(join(render_keywords(page))) },
     );
 
     let c = cfg.clone();
     env.register_filter(
         "canonical_link",
-        SafeFilter(move |page: &Value, _args: &Kwargs| join(render_canonical(page, &c))),
+        move |page: &Value, _: Kwargs, _: &State| -> Value {
+            safe(join(render_canonical(page, &c)))
+        },
     );
 
     env.register_filter(
         "standard_link",
-        SafeFilter(|page: &Value, _args: &Kwargs| join(render_standard_link(page))),
+        |page: &Value, _: Kwargs, _: &State| -> Value { safe(join(render_standard_link(page))) },
     );
 
     let c = cfg.clone();
     env.register_filter(
         "open_graph",
-        SafeFilter(move |page: &Value, args: &Kwargs| {
-            join(render_open_graph(page, site_arg(args), type_arg(args), &c))
-        }),
+        move |page: &Value, kwargs: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(join(render_open_graph(
+                page,
+                &site,
+                type_arg(&kwargs)?,
+                &c,
+            ))))
+        },
     );
 
     let c = cfg.clone();
     env.register_filter(
         "twitter_card",
-        SafeFilter(move |page: &Value, args: &Kwargs| {
-            join(render_twitter_card(page, site_arg(args), &c))
-        }),
+        move |page: &Value, _: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(join(render_twitter_card(page, &site, &c))))
+        },
     );
 
     let c = cfg.clone();
     env.register_filter(
         "json_ld",
-        SafeFilter(move |page: &Value, args: &Kwargs| {
-            render_json_ld(page, site_arg(args), type_arg(args), &c)
-        }),
+        move |page: &Value, kwargs: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(render_json_ld(page, &site, type_arg(&kwargs)?, &c)))
+        },
     );
 
-    env.register_filter(
-        "system_meta",
-        SafeFilter(|_page: &Value, _args: &Kwargs| join(render_system_meta())),
-    );
+    env.register_filter("system_meta", |_: &Value, _: Kwargs, _: &State| -> Value {
+        safe(join(render_system_meta()))
+    });
 
     // `feed_links` pipes `site` (not `page`); it's the last user of `cfg`.
     env.register_filter(
         "feed_links",
-        SafeFilter(move |site: &Value, _args: &Kwargs| render_feed_links(site, &cfg)),
+        move |site: &Value, _: Kwargs, _: &State| -> Value { safe(render_feed_links(site, &cfg)) },
     );
 }
-
-/// A Tera filter's keyword arguments.
-type Kwargs = HashMap<String, Value>;
 
 /// Config captured once at registration and shared by the filter closures.
 #[derive(Clone)]
@@ -140,18 +149,22 @@ struct MetaCfg {
     feed_names: Vec<String>,
 }
 
-/// The `site=` kwarg, or a `Null` placeholder so `field(site, …)` lookups just
-/// miss (used by every filter that takes `site` as a kwarg rather than the pipe).
-fn site_arg(args: &Kwargs) -> &Value {
-    static NULL: Value = Value::Null;
-    args.get("site").unwrap_or(&NULL)
+/// Mark rendered markup safe so autoescape leaves it raw.
+fn safe(s: String) -> Value {
+    Value::safe_string(&s)
+}
+
+/// The `site` variable from the render context (both build phases insert it),
+/// or a none placeholder so `field(site, …)` lookups just miss. Reading it off
+/// `State` spares templates from threading `site=site` through every call; a
+/// legacy `site=` kwarg is simply ignored.
+fn site_from(state: &State) -> TeraResult<Value> {
+    Ok(state.get::<Value>("site")?.unwrap_or_else(Value::none))
 }
 
 /// The `type=` kwarg (`og:type` / JSON-LD `@type`), defaulting to `"article"`.
-fn type_arg(args: &Kwargs) -> &str {
-    args.get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("article")
+fn type_arg(kwargs: &Kwargs) -> TeraResult<&str> {
+    Ok(kwargs.get::<&str>("type")?.unwrap_or("article"))
 }
 
 // ---------------------------------------------------------------------------
@@ -159,16 +172,16 @@ fn type_arg(args: &Kwargs) -> &str {
 // ---------------------------------------------------------------------------
 
 /// A trimmed, non-empty string field of `v`, or `None`.
-fn field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key)
+fn field<'a>(v: &'a Value, key: &'a str) -> Option<&'a str> {
+    v.get_from_path(key)
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
 }
 
 /// A trimmed, non-empty `page.data.<key>` string field.
-fn data_field<'a>(page: &'a Value, key: &str) -> Option<&'a str> {
-    page.get("data").and_then(|d| field(d, key))
+fn data_field<'a>(page: &'a Value, key: &'a str) -> Option<&'a str> {
+    page.get_from_path("data").and_then(|d| field(d, key))
 }
 
 /// Page title, falling back to the site title.
@@ -184,9 +197,8 @@ fn description<'a>(page: &'a Value, site: &'a Value) -> Option<&'a str> {
 /// Tag display texts from `page.terms.tags` (value side of slug → text),
 /// deterministically ordered (the source `BTreeMap` is sorted by slug).
 fn tags(page: &Value) -> Vec<&str> {
-    page.get("terms")
-        .and_then(|t| t.get("tags"))
-        .and_then(Value::as_object)
+    page.get_from_path("terms.tags")
+        .and_then(Value::as_map)
         .map(|m| m.values().filter_map(Value::as_str).collect())
         .unwrap_or_default()
 }
@@ -198,14 +210,16 @@ fn keywords(page: &Value) -> Option<String> {
     if !tags.is_empty() {
         return Some(tags.join(", "));
     }
-    match page.get("data").and_then(|d| d.get("keywords")) {
-        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
-        Some(Value::Array(items)) => {
-            let parts: Vec<&str> = items.iter().filter_map(Value::as_str).collect();
-            (!parts.is_empty()).then(|| parts.join(", "))
-        }
-        _ => None,
+    let kw = page.get_from_path("data.keywords")?;
+    if let Some(s) = kw.as_str() {
+        let s = s.trim();
+        return (!s.is_empty()).then(|| s.to_string());
     }
+    if let Some(items) = kw.as_array() {
+        let parts: Vec<&str> = items.iter().filter_map(Value::as_str).collect();
+        return (!parts.is_empty()).then(|| parts.join(", "));
+    }
+    None
 }
 
 /// Absolute URL for `path`: passed through verbatim when already absolute,
@@ -226,7 +240,7 @@ fn abs_url(path: &str, cfg: &MetaCfg) -> String {
 /// The page's canonical absolute URL, derived from its `output_path` the same way
 /// `url::PermalinkFilter` derives `permalink`.
 fn page_url(page: &Value, cfg: &MetaCfg) -> Option<String> {
-    let output_path = page.get("output_path").and_then(Value::as_str)?;
+    let output_path = page.get_from_path("output_path").and_then(Value::as_str)?;
     let url = permalink::to_url(Path::new(output_path));
     Some(format!(
         "{}{}{}",
@@ -477,7 +491,7 @@ fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> 
     blocks.extend(render_keywords(page));
     // Drafts (rendered locally via `serve`/`watch` or `--drafts`) should never be
     // indexed if they leak to a host.
-    if page.get("draft").and_then(Value::as_bool) == Some(true) {
+    if page.get_from_path("draft").and_then(Value::as_bool) == Some(true) {
         blocks.push(meta_name("robots", "noindex"));
     }
     blocks.extend(render_canonical(page, cfg));
@@ -519,7 +533,7 @@ mod tests {
         }
     }
 
-    fn page() -> Value {
+    fn page() -> Json {
         json!({
             "title": "Hello & <World>",
             "summary": "A \"short\" summary",
@@ -532,7 +546,7 @@ mod tests {
         })
     }
 
-    fn site() -> Value {
+    fn site() -> Json {
         json!({
             "title": "My Site",
             "description": "Site desc",
@@ -556,7 +570,7 @@ mod tests {
         } else {
             format!("{{{{ {} | {}({}) }}}}", subject, filter, args)
         };
-        tera.render_str(&expr, &ctx).unwrap()
+        tera.render_str(&expr, &ctx, false).unwrap()
     }
 
     #[test]
@@ -572,7 +586,7 @@ mod tests {
         ctx.insert("page", &no_summary);
         ctx.insert("site", &site());
         assert_eq!(
-            tera.render_str("{{ page | meta_description(site=site) }}", &ctx)
+            tera.render_str("{{ page | meta_description(site=site) }}", &ctx, false)
                 .unwrap(),
             r#"<meta name="description" content="Site desc">"#
         );
@@ -650,7 +664,7 @@ mod tests {
         ctx.insert("page", &no_image);
         ctx.insert("site", &json!({ "title": "Site" }));
         let out = tera
-            .render_str("{{ page | twitter_card(site=site) }}", &ctx)
+            .render_str("{{ page | twitter_card(site=site) }}", &ctx, false)
             .unwrap();
         assert!(out.contains(r#"<meta name="twitter:card" content="summary">"#));
         assert!(!out.contains("twitter:image"));
@@ -664,7 +678,7 @@ mod tests {
         ctx.insert("page", &page());
         ctx.insert("site", &site());
         let out = tera
-            .render_str("{{ page | canonical_link }}", &ctx)
+            .render_str("{{ page | canonical_link }}", &ctx, false)
             .unwrap();
         assert_eq!(out, r#"<link rel="canonical" href="/posts/hello/">"#);
     }
@@ -678,7 +692,7 @@ mod tests {
         ctx.insert("page", &draft);
         ctx.insert("site", &site());
         let out = tera
-            .render_str("{{ page | metadata(site=site) }}", &ctx)
+            .render_str("{{ page | metadata(site=site) }}", &ctx, false)
             .unwrap();
         assert!(out.contains(r#"<meta name="robots" content="noindex">"#));
         // The non-draft fixture page must not get noindex.
@@ -686,7 +700,7 @@ mod tests {
     }
 
     /// A page carrying the AT-URI the `standard_link` build pass injects.
-    fn page_with_atproto_uri() -> Value {
+    fn page_with_atproto_uri() -> Json {
         let mut p = page();
         p["data"]["atproto_uri"] = json!("at://did:plc:abc/site.standard.document/xyz");
         p
@@ -698,7 +712,9 @@ mod tests {
         register(&mut tera, cfg().site_url, cfg().base_path, cfg().feed_names);
         let mut ctx = tera::Context::new();
         ctx.insert("page", &page_with_atproto_uri());
-        let out = tera.render_str("{{ page | standard_link }}", &ctx).unwrap();
+        let out = tera
+            .render_str("{{ page | standard_link }}", &ctx, false)
+            .unwrap();
         // Exact output: the `at://` slashes must survive unescaped.
         assert_eq!(
             out,
@@ -719,7 +735,7 @@ mod tests {
         ctx.insert("page", &page_with_atproto_uri());
         ctx.insert("site", &site());
         let out = tera
-            .render_str("{{ page | metadata(site=site) }}", &ctx)
+            .render_str("{{ page | metadata(site=site) }}", &ctx, false)
             .unwrap();
         let canonical = out.find(r#"rel="canonical""#).expect("canonical link");
         let standard = out
@@ -775,7 +791,9 @@ mod tests {
         );
         let mut ctx = tera::Context::new();
         ctx.insert("site", &site());
-        let out = tera.render_str("{{ site | feed_links }}", &ctx).unwrap();
+        let out = tera
+            .render_str("{{ site | feed_links }}", &ctx, false)
+            .unwrap();
         assert_eq!(out.matches("<link").count(), 2);
         assert!(out.contains(r#"title="My Site" href="https://example.com/feed/all.xml""#));
         assert!(
@@ -790,7 +808,8 @@ mod tests {
         let mut ctx = tera::Context::new();
         ctx.insert("site", &site());
         assert_eq!(
-            tera.render_str("{{ site | feed_links }}", &ctx).unwrap(),
+            tera.render_str("{{ site | feed_links }}", &ctx, false)
+                .unwrap(),
             ""
         );
     }

@@ -10,21 +10,13 @@
 //!      | filter_in_dir(dir=dir(path=page.id_path), omit=[page.id_path]) %}
 //! ```
 
-use std::collections::HashMap;
-use tera::{Tera, Value};
+use tera::{Kwargs, State, Tera, TeraResult};
 
 pub fn register(env: &mut Tera) {
-    env.register_function(
-        "dir",
-        |args: &HashMap<String, Value>| -> tera::Result<Value> {
-            let path = match args.get("path") {
-                Some(Value::String(s)) => s,
-                Some(_) => return Err(tera::Error::msg("dir: `path` must be a string")),
-                None => return Err(tera::Error::msg("dir: missing required `path` argument")),
-            };
-            Ok(Value::String(parent_dir(path).to_string()))
-        },
-    );
+    env.register_function("dir", |kwargs: Kwargs, _: &State| -> TeraResult<String> {
+        let path = kwargs.must_get::<&str>("path")?;
+        Ok(parent_dir(path).to_string())
+    });
 }
 
 /// Parent directory of a `/`-separated path. `"foo/bar/baz.png"` -> `"foo/bar"`;
@@ -66,7 +58,11 @@ mod tests {
         let mut env = Tera::default();
         register(&mut env);
         let out = env
-            .render_str("{{ dir(path=\"foo/bar/baz.png\") }}", &tera::Context::new())
+            .render_str(
+                "{{ dir(path=\"foo/bar/baz.png\") }}",
+                &tera::Context::new(),
+                false,
+            )
             .unwrap();
         assert_eq!(out, "foo/bar");
     }
@@ -76,7 +72,7 @@ mod tests {
         let mut env = Tera::default();
         register(&mut env);
         let out = env
-            .render_str("{{ dir(path=\"index.md\") }}", &tera::Context::new())
+            .render_str("{{ dir(path=\"index.md\") }}", &tera::Context::new(), false)
             .unwrap();
         assert_eq!(out, "");
     }
@@ -86,7 +82,7 @@ mod tests {
         let mut env = Tera::default();
         register(&mut env);
         assert!(
-            env.render_str("{{ dir() }}", &tera::Context::new())
+            env.render_str("{{ dir() }}", &tera::Context::new(), false)
                 .is_err()
         );
     }
@@ -96,7 +92,7 @@ mod tests {
         let mut env = Tera::default();
         register(&mut env);
         assert!(
-            env.render_str("{{ dir(path=5) }}", &tera::Context::new())
+            env.render_str("{{ dir(path=5) }}", &tera::Context::new(), false)
                 .is_err()
         );
     }

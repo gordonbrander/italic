@@ -22,7 +22,7 @@ pub struct Doc {
     /// frontmatter only. Serialized for templates as `page.draft`.
     pub draft: bool,
     pub content: String,
-    /// Post-Tera Markdown body (shortcodes/macros expanded — the exact Markdown
+    /// Post-Tera Markdown body (shortcodes/components expanded — the exact Markdown
     /// comrak rendered into `content`). Captured during the markup phase for
     /// Markdown docs only; `None` for Raw/Yaml docs. Used to publish the full
     /// body via the `at.markpub.markdown` content union. Skipped from serde so

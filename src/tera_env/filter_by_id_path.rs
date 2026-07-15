@@ -18,96 +18,45 @@
 //! from `filter_in_dir`, which sorts).
 
 use globset::GlobBuilder;
-use std::collections::{HashMap, HashSet};
-use tera::{Tera, Value};
-
-const KNOWN_KEYS: &[&str] = &["path", "omit"];
+use std::collections::HashSet;
+use tera::{Error, Kwargs, State, Tera, TeraResult, Value};
 
 pub fn register(env: &mut Tera) {
     env.register_filter(
         "filter_by_id_path",
-        |value: &Value, args: &HashMap<String, Value>| -> tera::Result<Value> {
-            check_known_keys(args)?;
-            let docs = value.as_array().ok_or_else(|| {
-                tera::Error::msg("filter_by_id_path filter: input must be an array of docs")
-            })?;
-            let path = path_arg(args)?;
-            let omit = parse_omit(args)?;
+        |docs: &[Value], kwargs: Kwargs, _: &State| -> TeraResult<Value> {
+            let path = kwargs.must_get::<&str>("path")?;
+            let omit = kwargs.get::<Vec<String>>("omit")?.unwrap_or_default();
             let omit: HashSet<&str> = omit.iter().map(String::as_str).collect();
-            filter_by_id_path(docs, &path, &omit)
+            filter_by_id_path(docs, path, &omit)
         },
     );
-}
-
-/// Reject unknown kwargs so a typo fails loudly rather than silently doing
-/// nothing (matches the `filter_in_dir`/`collection` adapters' guard).
-fn check_known_keys(args: &HashMap<String, Value>) -> tera::Result<()> {
-    for key in args.keys() {
-        if !KNOWN_KEYS.contains(&key.as_str()) {
-            return Err(tera::Error::msg(format!(
-                "filter_by_id_path: unknown argument `{}` (allowed: {})",
-                key,
-                KNOWN_KEYS.join(", ")
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Require a string `path` kwarg holding the glob.
-fn path_arg(args: &HashMap<String, Value>) -> tera::Result<String> {
-    match args.get("path") {
-        Some(Value::String(s)) => Ok(s.clone()),
-        Some(_) => Err(tera::Error::msg(
-            "filter_by_id_path: `path` must be a string",
-        )),
-        None => Err(tera::Error::msg(
-            "filter_by_id_path: missing required `path` argument",
-        )),
-    }
-}
-
-/// Optional `omit`: an array of `id_path` strings to drop. Mirrors
-/// `filter_in_dir`'s `parse_omit`.
-fn parse_omit(args: &HashMap<String, Value>) -> tera::Result<Vec<String>> {
-    match args.get("omit") {
-        None => Ok(Vec::new()),
-        Some(v) => {
-            let arr = v.as_array().ok_or_else(|| {
-                tera::Error::msg("filter_by_id_path: `omit` must be an array of strings")
-            })?;
-            arr.iter()
-                .map(|e| {
-                    e.as_str().map(str::to_string).ok_or_else(|| {
-                        tera::Error::msg("filter_by_id_path: `omit` entries must be strings")
-                    })
-                })
-                .collect()
-        }
-    }
 }
 
 /// Keep docs whose `id_path` matches `glob` and that are not in `omit`,
 /// preserving input order. Glob semantics match `crate::query::Query`
 /// (`literal_separator` on). Kept free of Tera plumbing so it can be
 /// unit-tested directly.
-fn filter_by_id_path(docs: &[Value], glob: &str, omit: &HashSet<&str>) -> tera::Result<Value> {
+fn filter_by_id_path(docs: &[Value], glob: &str, omit: &HashSet<&str>) -> TeraResult<Value> {
     let matcher = GlobBuilder::new(glob)
         .literal_separator(true)
         .build()
-        .map_err(|e| tera::Error::msg(format!("filter_by_id_path: invalid glob `{glob}`: {e}")))?
+        .map_err(|e| Error::message(format!("filter_by_id_path: invalid glob `{glob}`: {e}")))?
         .compile_matcher();
 
     let mut kept: Vec<Value> = Vec::new();
     for doc in docs {
-        let id_path = doc.get("id_path").and_then(Value::as_str).ok_or_else(|| {
-            tera::Error::msg("filter_by_id_path filter: every doc must have a string `id_path`")
-        })?;
+        let id_path = doc
+            .get_from_path("id_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                Error::message("filter_by_id_path filter: every doc must have a string `id_path`")
+            })?;
         if matcher.is_match(id_path) && !omit.contains(id_path) {
             kept.push(doc.clone());
         }
     }
-    Ok(Value::Array(kept))
+    Ok(Value::from(kept))
 }
 
 #[cfg(test)]
@@ -120,7 +69,7 @@ mod tests {
         let map: BTreeMap<&str, &str> = [("id_path", id_path), ("title", title)]
             .into_iter()
             .collect();
-        tera::to_value(map).unwrap()
+        Value::from_serializable(&map)
     }
 
     fn ids(value: &Value) -> Vec<String> {
@@ -128,7 +77,12 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|d| d["id_path"].as_str().unwrap().to_string())
+            .map(|d| {
+                d.get_from_path("id_path")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string()
+            })
             .collect()
     }
 
@@ -183,7 +137,7 @@ mod tests {
 
     #[test]
     fn missing_id_path_is_an_error() {
-        let no_id = tera::to_value(BTreeMap::from([("title", "No id")])).unwrap();
+        let no_id = Value::from_serializable(&BTreeMap::from([("title", "No id")]));
         assert!(filter_by_id_path(&[no_id], "**", &empty_omit()).is_err());
     }
 
@@ -194,7 +148,7 @@ mod tests {
         let mut ctx = tera::Context::new();
         ctx.insert("x", "not an array");
         assert!(
-            env.render_str("{{ x | filter_by_id_path(path=\"**\") }}", &ctx)
+            env.render_str("{{ x | filter_by_id_path(path=\"**\") }}", &ctx, false)
                 .is_err()
         );
     }
@@ -204,25 +158,10 @@ mod tests {
         let mut env = Tera::default();
         register(&mut env);
         let mut ctx = tera::Context::new();
-        ctx.insert("docs", &Vec::<Value>::new());
+        ctx.insert("docs", &Vec::<u8>::new());
         assert!(
-            env.render_str("{{ docs | filter_by_id_path }}", &ctx)
+            env.render_str("{{ docs | filter_by_id_path }}", &ctx, false)
                 .is_err()
-        );
-    }
-
-    #[test]
-    fn unknown_argument_is_an_error() {
-        let mut env = Tera::default();
-        register(&mut env);
-        let mut ctx = tera::Context::new();
-        ctx.insert("docs", &Vec::<Value>::new());
-        assert!(
-            env.render_str(
-                "{{ docs | filter_by_id_path(path=\"**\", dir=\"x\") }}",
-                &ctx
-            )
-            .is_err()
         );
     }
 }

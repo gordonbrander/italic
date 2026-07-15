@@ -39,7 +39,7 @@ const FEED_BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <link>{{ post.id_path | permalink }}</link>
     <guid>{{ post.id_path | permalink }}</guid>
     <pubDate>{{ post.date | date(format="%a, %d %b %Y %H:%M:%S +0000") }}</pubDate>
-    <description>{{ post.summary | escape }}</description>
+    <description>{{ post.summary | escape_html }}</description>
     <content:encoded><![CDATA[{{ post.content | replace(from="]]>", to="]]]]><![CDATA[>") }}]]></content:encoded>
   </item>
 {% endfor %}</channel>

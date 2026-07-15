@@ -28,10 +28,14 @@ Tera reports the template name and what went wrong; the messages are usually
 literal. Things worth knowing:
 
 - A missing variable is an error — guard optional values with `{% if %}`
-  (e.g. `pagination.prev_url`, a `doc(...)` lookup, custom `page.data` keys).
-- `doc(id_path=...)` returns `null` for unknown paths rather than erroring;
-  most other functions fail loudly — `collection(name="typo")` and `all()`
-  with any argument are build errors by design.
+  (e.g. `pagination.prev_url`, a `doc(...)` lookup, custom `page.data` keys),
+  or use a fallback: `{{ page.data.blurb or "" }}`.
+- A template that references an unknown filter, function, or component fails
+  the whole build up front (Tera validates references when templates load),
+  with a message pointing at the exact spot.
+- `doc(id_path=...)` returns none for unknown paths rather than erroring, and
+  `collection(name="typo")` returns an empty list; missing *required* kwargs
+  (`collection()` without `name`) are errors.
 - Config typos also fail loudly: an unknown collection query key, an unknown
   `related:` key, or a `defaults:` entry naming an undeclared collection all
   stop the build with a pointer.

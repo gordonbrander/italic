@@ -1,9 +1,11 @@
 # Template reference
 
-Italic templates use [Tera](https://keats.github.io/tera/docs/), a Jinja-style
-template language. All of [Tera's built-in filters and
-functions](https://keats.github.io/tera/docs/#built-ins) are available, plus
-the italic-specific functions and filters documented here.
+Italic templates use [Tera](https://keats.github.io/tera/) (v2), a Jinja-style
+template language. All of Tera's built-in filters and functions are available,
+plus the `tera-contrib` set that shipped inside Tera 1 (`date`, `now()`,
+`slug`, `urlencode`, `urlencode_strict`, `json_encode`, `striptags`,
+`spaceless`, `filesize_format`, `get_random()`, `shuffle`), plus the
+italic-specific functions and filters documented here.
 
 ## Template files
 
@@ -19,10 +21,10 @@ generic escape hatch for any other format.
 Tera runs twice during a build, with different powers:
 
 - **Content phase** — each document's body is rendered as a Tera template
-  *before* Markdown rendering. This enables macros and partials inside
+  *before* Markdown rendering. This enables components and partials inside
   content. The page index does not exist yet, so functions that read other
   pages (`collection()`, `all()`, `taxonomy()`, `doc()`) and filters that read
-  the link graph (`backlinks`, `related`) are unavailable.
+  the link graph (`backlinks`, `related`) error with a phase message.
 - **Template phase** — layouts in `templates/` render each document and
   archive page. Everything is available.
 
@@ -96,9 +98,9 @@ on the site, by default in date-descending (newest-first) order, with no
 `config.yaml` setup. It is backed by a collection named `all` that the build
 injects automatically; declaring `collections: { all: ... }` in `config.yaml`
 lets you reorder, omit, or filter what `all()` (and `collection(name="all")`)
-returns. Takes **no arguments** — passing any is an error rather than a silent
-no-op. To order, limit, or filter ad hoc, redefine the `all` collection or pipe
-through array filters (`omit_docs`, `dirtree`, Tera's `slice`).
+returns. Takes no arguments. To order, limit, or filter ad hoc, redefine the
+`all` collection, pipe through array filters (`omit_docs`, `dirtree`), or use
+Tera's native slicing (`all()[:5]`).
 
 ```jinja
 {% for doc in all() %}
@@ -120,7 +122,7 @@ Iterate deterministically with [`entries`](#entries--iterate-a-map-in-key-order)
 
 ### `doc(id_path=...)` — look up a single doc
 
-**Template phase.** Fetch one document by `id_path`. Returns `null` for an
+**Template phase.** Fetch one document by `id_path`. Returns none for an
 unknown path, so guard with `{% if %}` rather than failing the build:
 
 ```jinja
@@ -191,22 +193,22 @@ key (Tera's `sort` only takes arrays). `sort` is `asc` (default) or `desc`.
 root's children as a tree. Each node has `name` (path segment), `path`
 (accumulated output path), and `kind`: directories (`"dir"`) carry `children`;
 files (`"file"`) carry the original `doc`. Children sort by `name`. Walk it
-with a recursive macro:
+with a recursive [component](../guides/components.md):
 
 ```jinja
-{% macro tree(nodes) %}
+{% component tree(nodes) %}
 <ul>
   {% for n in nodes %}
     {% if n.kind == "dir" %}
-      <li>{{ n.name }}{{ self::tree(nodes=n.children) }}</li>
+      <li>{{ n.name }}{{<tree nodes={n.children} />}}</li>
     {% else %}
       <li><a href="{{ n.doc.id_path | link }}">{{ n.doc.title }}</a></li>
     {% endif %}
   {% endfor %}
 </ul>
-{% endmacro %}
+{% endcomponent tree %}
 
-{{ self::tree(nodes=collection(name="posts") | dirtree) }}
+{{<tree nodes={collection(name="posts") | dirtree} />}}
 ```
 
 ### `filter_in_dir` — keep docs in one directory
@@ -332,14 +334,14 @@ a given field is absent.
 | `json_ld` | `page` | `<script type="application/ld+json">` (`BlogPosting`, or `WebSite` for `type="website"`). |
 | `feed_links` | `site` | One `<link rel="alternate">` per configured `feed:`. |
 
-All take `site=site` as a kwarg (except `meta_keywords`, `standard_link`, and
-`feed_links`);
-`open_graph`/`twitter_card`/`json_ld`/`metadata` accept `type=` (default
+Site-wide fallbacks are read from the `site` context variable automatically —
+no kwarg needed (a legacy `site=site` kwarg is accepted and ignored).
+`open_graph`/`json_ld`/`metadata` accept `type=` (default
 `"article"`; pass `type="website"` on non-article pages like the home page).
 
 ```jinja
 <head>
-  {{ page | metadata(site=site) }}
+  {{ page | metadata }}
 </head>
 ```
 
@@ -348,12 +350,11 @@ falling back to `site.image`; Twitter handle from `site.twitter`; locale from
 `site.locale` (default `en_US`); author from `page.data.author`, else
 `site.author`. See the [Metadata guide](../guides/metadata.md).
 
-## Macros
+## Components
 
-Macro files in `templates/macros/` are auto-imported (non-recursively) into the
-content-phase environment, so documents can call them directly. In templates,
-import them explicitly with `{% import %}`. See the
-[Macros guide](../guides/macros.md).
+Components defined in any template file are registered globally, so documents
+and templates alike call them directly — `{{<youtube.embed id="x" />}}` — with
+no imports. See the [Components guide](../guides/components.md).
 
 ## See also
 

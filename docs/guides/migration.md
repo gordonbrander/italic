@@ -61,7 +61,7 @@ another note's rendered body. Start with the
 | Go templates (`{{ .Title }}`) | Tera (`{{ page.title }}`) — syntax differs substantially; layouts need rewriting. |
 | `layouts/_default/list.html` | An [archive template](archives.md). |
 | Taxonomies in config | Same idea: `taxonomies:` array. |
-| Shortcodes | [Tera macros](macros.md). |
+| Shortcodes | [Tera components](components.md). |
 | `aliases:` frontmatter | Rename to [`redirect_from:`](redirects.md) — same redirect-stub behavior, different key. |
 
 ## From Zola

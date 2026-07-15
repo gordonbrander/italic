@@ -180,7 +180,7 @@ curl -s https://example.com/posts/getting-started/ \
 ```
 
 The per-page tag is emitted by the built-in `standard_link` metadata filter
-(included in the `{{ page | metadata(site=site) }}` umbrella — see the
+(included in the `{{ page | metadata }}` umbrella — see the
 [Metadata guide](metadata.md)). Both proofs are *derived* from
 `ITALIC_ATPROTO_DID` + `site.url` — record keys are hashes of your canonical
 URLs — so they're present in every build and must simply agree with what the

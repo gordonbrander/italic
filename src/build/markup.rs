@@ -11,7 +11,6 @@ use crate::site_data::SiteData;
 use crate::tera_env::{MarkupEnv, build_markup_env};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::borrow::Cow;
 use std::sync::Arc;
 
 const SUMMARY_MAX_CHARS: usize = 250;
@@ -22,7 +21,7 @@ const SUMMARY_MAX_CHARS: usize = 250;
 /// Wikilink target resolution uses `env.stem_index`, the frozen stem→candidate
 /// grouping built when the env was constructed. Exposed publicly so
 /// `archive::run` can apply the same transformation to its emitted docs.
-pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Result<()> {
+pub fn render(env: &MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Result<()> {
     let mut ctx = tera::Context::new();
     ctx.insert("page", &*doc);
     ctx.insert("site", &site_data.site);
@@ -34,21 +33,14 @@ pub fn render(env: &mut MarkupEnv, site_data: &SiteData, doc: &mut Doc) -> Resul
         ctx.insert("term", term);
     }
 
-    // Tera over the body string runs unescaped (the one-off template has
-    // no file extension, so HTML autoescape is off). Authors writing
-    // `{{ ... }}` inside Markdown code fences should wrap them in
-    // `{% raw %}` per spec §6.
-    // The macro preamble auto-imports `templates/macros/*.html` so Markdown
-    // bodies can call them as shortcodes (Phase 11). Empty when no macros
-    // exist — skip the allocation in that case.
-    let body_with_imports: Cow<str> = if env.macro_preamble.is_empty() {
-        Cow::Borrowed(doc.content.as_str())
-    } else {
-        Cow::Owned(format!("{}{}", env.macro_preamble, doc.content))
-    };
+    // Tera over the body string runs unescaped (autoescape off for the
+    // one-off template). Authors writing `{{ ... }}` inside Markdown code
+    // fences should wrap them in `{% raw %}` per spec §6. Components defined
+    // in templates are registered globally, so Markdown bodies can call them
+    // as shortcodes (`{{<youtube.embed id="abc" />}}`) with no imports.
     let rendered = env
         .tera
-        .render_str(&body_with_imports, &ctx)
+        .render_str(&doc.content, &ctx, false)
         .with_context(|| format!("markup-phase Tera in {}", doc.id_path.display()))?;
 
     // Markdown bodies are parsed by comrak; wikilinks are resolved on the AST
@@ -119,16 +111,14 @@ pub fn run(config: &Config, site_data: &SiteData, index: &mut DocIndex) -> Resul
     // read another doc's body or stale markup-phase state.
     let snapshot: Arc<Vec<DocMeta>> = Arc::new(index.to_doc_metas());
     let mut env = build_markup_env(config, snapshot.clone())?;
-    // Fill the co-located-media lookup before the env is cloned per worker.
+    // Fill the co-located-media lookup before rendering.
     env.asset_index = media::AssetIndex::build(index.assets());
     // Each doc renders independently — it mutates only its own fields, while
     // `env` (Tera, comrak options, syntect, stem index) and `site_data` are
-    // read-only. `render_str` needs `&mut Tera`, so each Rayon worker gets its
-    // own clone of the env via `try_for_each_init` (cloned once per worker,
-    // not per doc).
+    // read-only, so one env is shared by reference across Rayon workers.
     index
         .par_docs_mut()
-        .try_for_each_init(|| env.clone(), |env, doc| render(env, site_data, doc))
+        .try_for_each(|doc| render(&env, site_data, doc))
 }
 
 #[cfg(test)]
@@ -154,8 +144,8 @@ mod tests {
 
     fn render_doc(doc: &mut Doc) {
         let snapshot: Arc<Vec<DocMeta>> = Arc::new(Vec::new());
-        let mut env = build_markup_env(&cfg(), snapshot).unwrap();
-        render(&mut env, &site_data(), doc).unwrap();
+        let env = build_markup_env(&cfg(), snapshot).unwrap();
+        render(&env, &site_data(), doc).unwrap();
     }
 
     #[test]

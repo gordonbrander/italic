@@ -14,7 +14,7 @@ Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blog
   - [Github-flavored Markdown](docs/guides/authoring.md)
   - [Multiple formats](docs/guides/authoring.md): publish content from Markdown, HTML, and YAML files
   - [Math (LaTeX/KaTeX)](docs/guides/authoring.md): inline/display math for technical gardens
-  - [Macros (shortcodes)](docs/guides/macros.md): define custom macros you can use in your Markdown for YouTube embeds, UI widgets, and more.
+  - [Components (shortcodes)](docs/guides/components.md): define custom components you can use in your Markdown for YouTube embeds, UI widgets, and more.
   - [Code fences with syntax highlighting](docs/guides/authoring.md)
   - [Callouts](docs/guides/authoring.md): info, warnings, etc.
 - **Digital gardens**
@@ -42,7 +42,7 @@ Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blog
 - **Theming**
   - [Themes](docs/guides/themes.md)
   - [Theme overrides](docs/guides/themes.md)
-  - [Tera templates](docs/guides/templates.md): blazingly fast Jinja-like templates in Rust with support for template functions, filters, macros, template extension, and more.
+  - [Tera templates](docs/guides/templates.md): blazingly fast Jinja-like templates in Rust with support for template functions, filters, components, template extension, and more.
   - [Lots of built-in custom filters and functions](docs/reference/templates.md)
 - **SEO**
   - [Social cards](docs/guides/metadata.md): automatically add metadata for Twitter Cards, [Facebook Open Graph](https://ogp.me/), [schema.org](https://schema.org/) and more.

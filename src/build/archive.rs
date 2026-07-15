@@ -67,11 +67,17 @@ pub enum ArchiveKind {
 
 /// Pagination context for a single emitted page, surfaced to the body and
 /// template as `pagination`.
+/// `prev_url`/`next_url` are skipped (not `null`) when absent: Tera 2's
+/// `default` filter only replaces *undefined* values, so
+/// `pagination.prev_url | default(value=...)` relies on the field being absent
+/// on page 1 rather than present-but-null.
 #[derive(Serialize)]
 pub struct Pagination {
     pub current: usize,
     pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next_url: Option<String>,
     pub items: Vec<Doc>,
 }
@@ -243,16 +249,13 @@ pub fn run(
     let markup_env = build_markup_env(config, snapshot)?;
 
     // Archives are mutually independent (each reads only the frozen
-    // classification, none reads another's output), so fan out across Rayon —
-    // each worker renders archive bodies with its own `MarkupEnv` clone. The
-    // emitted pages are returned for the template phase to render; they are never
-    // added to the index (generated pages are not classified).
+    // classification, none reads another's output), so fan out across Rayon,
+    // sharing one read-only `MarkupEnv` by reference. The emitted pages are
+    // returned for the template phase to render; they are never added to the
+    // index (generated pages are not classified).
     let emitted: Vec<Doc> = archives
         .par_iter()
-        .map_init(
-            || markup_env.clone(),
-            |env, archive| produce(env, site_data, classification, archive),
-        )
+        .map(|archive| produce(&markup_env, site_data, classification, archive))
         .collect::<Result<Vec<Vec<Doc>>>>()?
         .into_iter()
         .flatten()
@@ -264,7 +267,7 @@ pub fn run(
 /// Produce every page for one archive: one paginated run for a collection, or
 /// one paginated run per term for a taxonomy.
 fn produce(
-    env: &mut MarkupEnv,
+    env: &MarkupEnv,
     site_data: &SiteData,
     classification: &DocIndex,
     archive: &Archive,
@@ -314,7 +317,7 @@ fn produce(
 /// Paginate `items` into page docs for one archive run. `term` (when present)
 /// substitutes `:term` in the permalink and is surfaced to the body/template.
 fn paginate(
-    env: &mut MarkupEnv,
+    env: &MarkupEnv,
     site_data: &SiteData,
     archive: &Archive,
     items: &[Doc],

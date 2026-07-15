@@ -13,21 +13,18 @@
 //!
 //! `sort` is `"asc"` (default) or `"desc"`; any other value is an author error.
 
-use std::collections::HashMap;
-use tera::{Map, Tera, Value};
+use std::collections::BTreeMap;
+use tera::{Error, Kwargs, Map, State, Tera, TeraResult, Value};
 
 pub fn register(env: &mut Tera) {
     env.register_filter(
         "entries",
-        |value: &Value, args: &HashMap<String, Value>| -> tera::Result<Value> {
-            let map = value
-                .as_object()
-                .ok_or_else(|| tera::Error::msg("entries filter: input must be a map"))?;
-            let descending = sort_is_descending(args)?;
+        |map: &Map, kwargs: Kwargs, _: &State| -> TeraResult<Value> {
+            let descending = sort_is_descending(&kwargs)?;
 
-            // serde_json::Map iterates in insertion order; collect and sort by
-            // key so output is deterministic regardless of how the map was built.
-            let mut keys: Vec<&String> = map.keys().collect();
+            // Collect and sort by key so output is deterministic regardless of
+            // how the map was built.
+            let mut keys: Vec<_> = map.keys().collect();
             keys.sort();
             if descending {
                 keys.reverse();
@@ -36,14 +33,15 @@ pub fn register(env: &mut Tera) {
             let entries: Vec<Value> = keys
                 .into_iter()
                 .map(|k| {
-                    let mut entry = Map::with_capacity(2);
-                    entry.insert("key".to_string(), Value::String(k.clone()));
-                    entry.insert("value".to_string(), map[k].clone());
-                    Value::Object(entry)
+                    let entry: BTreeMap<&str, Value> =
+                        [("key", k.as_value()), ("value", map[k].clone())]
+                            .into_iter()
+                            .collect();
+                    Value::from(entry)
                 })
                 .collect();
 
-            Ok(Value::Array(entries))
+            Ok(Value::from(entries))
         },
     );
 }
@@ -51,12 +49,11 @@ pub fn register(env: &mut Tera) {
 /// `false` for `"asc"` (the default when omitted), `true` for `"desc"`. Any
 /// other value is an author error, mirroring how the URL/`doc` adapters treat
 /// malformed arguments rather than silently guessing.
-fn sort_is_descending(args: &HashMap<String, Value>) -> tera::Result<bool> {
-    match args.get("sort") {
-        None => Ok(false),
-        Some(Value::String(s)) if s == "asc" => Ok(false),
-        Some(Value::String(s)) if s == "desc" => Ok(true),
-        Some(_) => Err(tera::Error::msg(
+fn sort_is_descending(kwargs: &Kwargs) -> TeraResult<bool> {
+    match kwargs.get::<&str>("sort")? {
+        None | Some("asc") => Ok(false),
+        Some("desc") => Ok(true),
+        Some(_) => Err(Error::message(
             "entries filter: `sort` must be \"asc\" or \"desc\"",
         )),
     }

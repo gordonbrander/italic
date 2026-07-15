@@ -5,23 +5,23 @@
 //! to render docs as a hierarchy (sitemap, archive index, file-browser nav).
 //! `docs | dirtree` groups docs by their `output_path` (the published URL
 //! layout) and returns the content root's children as an array of nodes. Every
-//! directory's `children` is the same kind of array, so one recursive macro
+//! directory's `children` is the same kind of array, so one recursive component
 //! walks the whole tree:
 //!
 //! ```html
-//! {% macro tree(nodes) %}
+//! {% component tree(nodes) %}
 //! <ul>
 //!   {% for n in nodes %}
 //!     {% if n.kind == "dir" %}
-//!       <li>{{ n.name }}{{ self::tree(nodes=n.children) }}</li>
+//!       <li>{{ n.name }}{{<tree nodes={n.children} />}}</li>
 //!     {% else %}
 //!       <li><a href="{{ n.doc.id_path | link }}">{{ n.doc.title }}</a></li>
 //!     {% endif %}
 //!   {% endfor %}
 //! </ul>
-//! {% endmacro %}
+//! {% endcomponent tree %}
 //!
-//! {{ self::tree(nodes=docs | dirtree) }}
+//! {{<tree nodes={docs | dirtree} />}}
 //! ```
 //!
 //! Each node is one of:
@@ -33,18 +33,12 @@
 //! Children are sorted by `name` ascending (dirs and files interleaved).
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
-use tera::{Map, Tera, Value};
+use tera::{Error, Kwargs, State, Tera, TeraResult, Value};
 
 pub fn register(env: &mut Tera) {
     env.register_filter(
         "dirtree",
-        |value: &Value, _args: &HashMap<String, Value>| -> tera::Result<Value> {
-            let docs = value.as_array().ok_or_else(|| {
-                tera::Error::msg("dirtree filter: input must be an array of docs")
-            })?;
-            build_tree(docs)
-        },
+        |docs: &[Value], _: Kwargs, _: &State| -> TeraResult<Value> { build_tree(docs) },
     );
 }
 
@@ -55,18 +49,18 @@ enum Node {
     File(Value),
 }
 
-/// Fold the doc values into a tree and emit the content root's children as a
-/// `Value::Array`. Kept free of Tera filter plumbing so it can be unit-tested
+/// Fold the doc values into a tree and emit the content root's children as an
+/// array value. Kept free of Tera filter plumbing so it can be unit-tested
 /// directly.
-fn build_tree(docs: &[Value]) -> tera::Result<Value> {
+fn build_tree(docs: &[Value]) -> TeraResult<Value> {
     let mut root: BTreeMap<String, Node> = BTreeMap::new();
 
     'docs: for doc in docs {
         let output_path = doc
-            .get("output_path")
+            .get_from_path("output_path")
             .and_then(Value::as_str)
             .ok_or_else(|| {
-                tera::Error::msg("dirtree filter: every doc must have a string `output_path`")
+                Error::message("dirtree filter: every doc must have a string `output_path`")
             })?;
 
         // `PathBuf` serializes with `/` separators on this project's platforms;
@@ -101,11 +95,11 @@ fn build_tree(docs: &[Value]) -> tera::Result<Value> {
     Ok(to_value(&root, ""))
 }
 
-/// Recursively convert the intermediate tree into a `Value::Array` of node
+/// Recursively convert the intermediate tree into an array value of node
 /// objects, threading the accumulated output-path `prefix` so each node carries
 /// its full `path`.
 fn to_value(nodes: &BTreeMap<String, Node>, prefix: &str) -> Value {
-    let array = nodes
+    let array: Vec<Value> = nodes
         .iter()
         .map(|(name, node)| {
             let path = if prefix.is_empty() {
@@ -113,37 +107,47 @@ fn to_value(nodes: &BTreeMap<String, Node>, prefix: &str) -> Value {
             } else {
                 format!("{}/{}", prefix, name)
             };
-            let mut obj = Map::new();
-            obj.insert("name".to_string(), Value::String(name.clone()));
-            obj.insert("path".to_string(), Value::String(path.clone()));
+            let mut obj: BTreeMap<&str, Value> = BTreeMap::new();
+            obj.insert("name", Value::from(name.clone()));
+            obj.insert("path", Value::from(path.clone()));
             match node {
                 Node::Dir(children) => {
-                    obj.insert("kind".to_string(), Value::String("dir".to_string()));
-                    obj.insert("children".to_string(), to_value(children, &path));
+                    obj.insert("kind", Value::from("dir"));
+                    obj.insert("children", to_value(children, &path));
                 }
                 Node::File(doc) => {
-                    obj.insert("kind".to_string(), Value::String("file".to_string()));
-                    obj.insert("doc".to_string(), doc.clone());
+                    obj.insert("kind", Value::from("file"));
+                    obj.insert("doc", doc.clone());
                 }
             }
-            Value::Object(obj)
+            Value::from(obj)
         })
         .collect();
-    Value::Array(array)
+    Value::from(array)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A doc value with just the fields `dirtree` reads/echoes. `tera::to_value`
-    /// serializes the map to a `Value::Object`, the same shape a real `Doc`
-    /// produces.
+    /// A doc value with just the fields `dirtree` reads/echoes, serialized to a
+    /// map value the same shape a real `Doc` produces.
     fn doc(output_path: &str, title: &str) -> Value {
         let map: BTreeMap<&str, &str> = [("output_path", output_path), ("title", title)]
             .into_iter()
             .collect();
-        tera::to_value(map).unwrap()
+        Value::from_serializable(&map)
+    }
+
+    /// `node.<field>` as a string, for assertions.
+    fn s<'a>(node: &'a Value, field: &'a str) -> &'a str {
+        node.get_from_path(field).and_then(Value::as_str).unwrap()
+    }
+
+    fn children(node: &Value) -> &[Value] {
+        node.get_from_path("children")
+            .and_then(Value::as_array)
+            .unwrap()
     }
 
     #[test]
@@ -152,11 +156,11 @@ mod tests {
         let top = tree.as_array().unwrap();
         assert_eq!(top.len(), 2);
         // Sorted by name: `about.html` before `index.html`.
-        assert_eq!(top[0]["kind"], "file");
-        assert_eq!(top[0]["name"], "about.html");
-        assert_eq!(top[0]["path"], "about.html");
-        assert_eq!(top[0]["doc"]["title"], "About");
-        assert_eq!(top[1]["name"], "index.html");
+        assert_eq!(s(&top[0], "kind"), "file");
+        assert_eq!(s(&top[0], "name"), "about.html");
+        assert_eq!(s(&top[0], "path"), "about.html");
+        assert_eq!(s(&top[0], "doc.title"), "About");
+        assert_eq!(s(&top[1], "name"), "index.html");
     }
 
     #[test]
@@ -170,25 +174,25 @@ mod tests {
 
         let top = tree.as_array().unwrap();
         // Top level: `about.html` (file) before `posts` (dir), sorted by name.
-        assert_eq!(top[0]["kind"], "file");
-        assert_eq!(top[0]["name"], "about.html");
-        assert_eq!(top[1]["kind"], "dir");
-        assert_eq!(top[1]["name"], "posts");
-        assert_eq!(top[1]["path"], "posts");
+        assert_eq!(s(&top[0], "kind"), "file");
+        assert_eq!(s(&top[0], "name"), "about.html");
+        assert_eq!(s(&top[1], "kind"), "dir");
+        assert_eq!(s(&top[1], "name"), "posts");
+        assert_eq!(s(&top[1], "path"), "posts");
 
         // `posts` has child dirs `a` and `b`, sorted ascending, paths accumulated.
-        let posts = top[1]["children"].as_array().unwrap();
+        let posts = children(&top[1]);
         assert_eq!(posts.len(), 2);
-        assert_eq!(posts[0]["name"], "a");
-        assert_eq!(posts[0]["path"], "posts/a");
-        assert_eq!(posts[1]["name"], "b");
-        assert_eq!(posts[1]["path"], "posts/b");
+        assert_eq!(s(&posts[0], "name"), "a");
+        assert_eq!(s(&posts[0], "path"), "posts/a");
+        assert_eq!(s(&posts[1], "name"), "b");
+        assert_eq!(s(&posts[1], "path"), "posts/b");
 
         // Leaf file under `posts/a` carries its doc and full path.
-        let a_children = posts[0]["children"].as_array().unwrap();
-        assert_eq!(a_children[0]["kind"], "file");
-        assert_eq!(a_children[0]["path"], "posts/a/index.html");
-        assert_eq!(a_children[0]["doc"]["title"], "A");
+        let a_children = children(&posts[0]);
+        assert_eq!(s(&a_children[0], "kind"), "file");
+        assert_eq!(s(&a_children[0], "path"), "posts/a/index.html");
+        assert_eq!(s(&a_children[0], "doc.title"), "A");
     }
 
     #[test]
@@ -197,12 +201,12 @@ mod tests {
         register(&mut env);
         let mut ctx = tera::Context::new();
         ctx.insert("x", "not an array");
-        assert!(env.render_str("{{ x | dirtree }}", &ctx).is_err());
+        assert!(env.render_str("{{ x | dirtree }}", &ctx, false).is_err());
     }
 
     #[test]
     fn missing_output_path_is_an_error() {
-        let no_path = tera::to_value(BTreeMap::from([("title", "No path")])).unwrap();
+        let no_path = Value::from_serializable(&BTreeMap::from([("title", "No path")]));
         assert!(build_tree(&[no_path]).is_err());
     }
 }

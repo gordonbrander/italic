@@ -39,7 +39,7 @@ feed:             # one /feed/<name>.xml per collection; `[]` to disable
 |-----|------|---------|---------|
 | `content_dir` | path | `content` | Source content (`.md`, `.html`, `.yaml`). |
 | `output_dir` | path | `public` | Build output. Removed by `italic clean`. |
-| `templates_dir` | path | `templates` | Tera layouts, partials, and macros. |
+| `templates_dir` | path | `templates` | Tera layouts, partials, and components. |
 | `static_dir` | path | `static` | Copied verbatim into the output. |
 | `data_dir` | path | `data` | YAML files surfaced as `{{ data.* }}`. |
 | `archives_dir` | path | `archives` | Archive templates (see [Archives](../guides/archives.md)). |
