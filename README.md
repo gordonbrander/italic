@@ -18,36 +18,50 @@ Publish your blog, markdown notes, or [Obsidian Vault](https://obsidian.md) to [
 
 Italic comes with everything you need to publish a blog, personal wiki, documentation site, or project site.
 
-- **Content**
-  - Callouts
-  - Macros (shortcodes): define custom macros you can use in your Markdown for YouTube embeds, UI widgets, and use them in your .
-- **Digital gardens and wikis**
-  - Obsidian-flavored Markdown: supports loads of [Obsidian Markdown extensions](https://obsidian.md/help/syntax). 
-  - Wikilinks: fuzzy link matching using the same algorithm as Obsidian
-  - Backlinks: see everything that links back to a page.
-  - Block references: deep link to headings and blocks with Obsidian-style purple links.
-  - Hashtags: lifted up to tag taxonomy
-  - Related pages: Surface related posts with a customizable algorithm
-  - Obsidian Vaults: seamlessly transform your Vault into a website.
-- **Blogging**
-  - Draft posts
-  - Tags
-  - Archives: paginated archival posts
-  - RSS
-  - Publish multiple blogs on the same site (custom collections)
-- **Content-driven websites**
-  - Custom taxonomies: organize posts by tag, category, artist, label, phase of the moon — no problem.
-  - Custom collections: glob-match files to define custom page collections you can use in templates
-  - Page trees: organize pages into a tree for menus
+- **Markup**
+  - [Github-flavored Markdown](docs/guides/authoring.md)
+  - [Multiple formats](docs/guides/authoring.md): publish content from Markdown, HTML, and YAML files
+  - [Math (LaTeX/KaTeX)](docs/guides/authoring.md): inline/display math for technical gardens
+  - [Macros (shortcodes)](docs/guides/macros.md): define custom macros you can use in your Markdown for YouTube embeds, UI widgets, and more.
+  - [Code fences with syntax highlighting](docs/guides/authoring.md)
+  - [Callouts](docs/guides/authoring.md): info, warnings, etc.
+- **Digital gardens**
+  - [Wikilinks](docs/guides/wikilinks.md): fuzzy link matching using the same algorithm as Obsidian
+  - [Backlinks](docs/guides/wikilinks.md): see everything that links back to a page.
+  - [Block references](docs/guides/wikilinks.md): deep link to headings and blocks with Obsidian-style purple links.
+  - [Hashtags](docs/guides/taxonomies.md): lifted up to tag taxonomy
+  - [Obsidian Markdown extensions](docs/guides/authoring.md): supports lots of long-tail [Obsidian Markdown features](https://obsidian.md/help/syntax).
+  - [Obsidian Vaults](docs/guides/migration.md): seamlessly transform your Vault into a website.
+- **Blogs**
+  - [Draft posts](docs/guides/drafts.md)
+  - [Tags](docs/guides/taxonomies.md)
+  - [Archives](docs/guides/archives.md): paginated archival posts
+  - [RSS](docs/guides/archives.md): syndicate your posts, including multiple custom feeds
+  - [Publish multiple blogs on the same site](docs/guides/collections.md) (custom collections)
+- **Content websites**
+  - [Custom permalinks](docs/guides/permalinks.md): customizable per-collection and per-page
+  - [Redirects](docs/guides/redirects.md)
+  - [Custom taxonomies](docs/guides/taxonomies.md): organize posts by tag, category, artist, label, phase of the moon — no problem.
+  - [Custom collections](docs/guides/collections.md): glob-match files to define custom page collections you can use in templates
+  - [Related pages](docs/guides/related.md): Surface related posts with a customizable algorithm
+  - [Page trees](docs/guides/templates.md): organize pages into a tree for menus
+  - [Collection defaults](docs/guides/collections.md): add custom metadata to groups of pages
+  - [Data files](docs/guides/data.md): bulk-add custom template data via the `data/` folder
 - **Theming**
-  - [Tera templates](https://keats.github.io/tera/): blazingly fast Jinja-like templates in Rust with support for template functions, filters, macros, template extension, and more.
-  - Lots of built-in custom filters and functions
+  - [Themes](docs/guides/themes.md)
+  - [Theme overrides](docs/guides/themes.md)
+  - [Tera templates](docs/guides/templates.md): blazingly fast Jinja-like templates in Rust with support for template functions, filters, macros, template extension, and more.
+  - [Lots of built-in custom filters and functions](docs/reference/templates.md)
 - **SEO**
-  - Social cards: automatically add metadata for Twitter Cards, [Facebook Open Graph](https://ogp.me/), [schema.org](https://schema.org/) and more.
-  - [sitemap.xml](https://www.sitemaps.org/protocol.html) support
+  - [Social cards](docs/guides/metadata.md): automatically add metadata for Twitter Cards, [Facebook Open Graph](https://ogp.me/), [schema.org](https://schema.org/) and more.
+  - [sitemap.xml](docs/guides/archives.md) support
+- **Development**
+  - [Built-in local dev server](docs/reference/cli.md)
+  - [Super-fast hot reload](docs/reference/cli.md)
 - **ATProto integration**
-  - Bluesky microblogging
-  - standard.site integration
+  - [PDS integration](docs/guides/publishing-atproto.md): publish and check your website's sync status
+  - [Bluesky microblogging](docs/guides/publishing-atproto.md)
+  - [standard.site records](docs/guides/publishing-atproto.md)
 
 ## Install
 
