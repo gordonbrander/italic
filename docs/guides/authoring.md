@@ -54,7 +54,7 @@ on every file.
 ## Templates inside content
 
 Document bodies are themselves rendered by Tera before the Markdown render, so
-you can use macros, partials, and the page's own data inline:
+you can use components, partials, and the page's own data inline:
 
 ```markdown
 ---
@@ -65,7 +65,7 @@ This post is tagged:
 ```
 
 Within this content phase a template sees only site data and the page it's
-rendering in — not other pages. See [Macros](macros.md) and
+rendering in — not other pages. See [Components](components.md) and
 [the build pipeline](../concepts/build-pipeline.md#consequences-worth-knowing).
 
 ## Co-located media (images and attachments)

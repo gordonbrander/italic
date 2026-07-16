@@ -31,7 +31,16 @@ serde_json = "1"
 serde_yaml_ng = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
 anyhow = "1"
-tera = "1"
+tera = { version = "2", features = ["preserve_order"] }
+tera-contrib = { version = "0.2", features = [
+    "date",
+    "slug",
+    "urlencode",
+    "json",
+    "regex",
+    "rand",
+    "filesize_format",
+] }
 rayon = "1"
 globset = "0.4"
 notify-debouncer-mini = "0.4"

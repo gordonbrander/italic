@@ -211,5 +211,5 @@ recipes for GitHub Pages, Netlify, Cloudflare Pages, and rsync are in the
 
 - Style it: wrap the layout in CSS, or adopt a [theme](../guides/themes.md).
 - [Permalinks](../guides/permalinks.md) — clean URLs for everything.
-- [Macros](../guides/macros.md) — video embeds and shortcodes in your notes.
+- [Components](../guides/components.md) — video embeds and shortcodes in your notes.
 - [Migration guide](../guides/migration.md) — coming from Jekyll, Hugo, or Quartz.

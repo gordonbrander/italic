@@ -17,9 +17,12 @@ For a complete, sensible `<head>`, pipe `page` through `metadata`:
 
 ```jinja
 <head>
-  {{ page | metadata(site=site) }}
+  {{ page | metadata }}
 </head>
 ```
+
+The filters read the `site` context variable themselves, so there's nothing to
+pass in.
 
 That emits, in order: `<meta charset>`, viewport, the generator tag
 (`<meta name="generator" content="italic <version>">`), `<title>` (`Page · Site`),
@@ -31,7 +34,7 @@ pages), Open Graph tags, the Twitter card, JSON-LD, and a feed-discovery
 On non-article pages (a home or landing page), pass `type="website"`:
 
 ```jinja
-{{ page | metadata(site=site, type="website") }}
+{{ page | metadata(type="website") }}
 ```
 
 ## Composing individual filters
@@ -41,13 +44,13 @@ When you want control over what goes in `<head>`, use the filters individually:
 ```jinja
 <head>
   <title>{{ page.title }} · {{ site.title }}</title>
-  {{ page | meta_description(site=site) }}
+  {{ page | meta_description }}
   {{ page | meta_keywords }}
   {{ page | canonical_link }}
   {{ page | standard_link }}
-  {{ page | open_graph(site=site, type="article") }}
-  {{ page | twitter_card(site=site) }}
-  {{ page | json_ld(site=site) }}
+  {{ page | open_graph(type="article") }}
+  {{ page | twitter_card }}
+  {{ page | json_ld }}
   {{ page | system_meta }}
   {{ site | feed_links }}
 </head>

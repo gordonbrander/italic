@@ -235,8 +235,8 @@ fn related() {
 }
 
 #[test]
-fn macros() {
-    run_build("11_macros");
+fn components() {
+    run_build("11_components");
 }
 
 #[test]

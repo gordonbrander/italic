@@ -199,7 +199,7 @@ With `ITALIC_ATPROTO_DID` and `site.url` set, every build — including CI build
 
 2. **Per-document proof** — a `<link rel="site.standard.document">` tag in each
    published page's `<head>`. The built-in [metadata filters](metadata.md) emit
-   it automatically: `{{ page | metadata(site=site) }}` includes it, or compose
+   it automatically: `{{ page | metadata }}` includes it, or compose
    `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
    raw AT-URI from `page.data.atproto_uri`.
 

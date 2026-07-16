@@ -58,7 +58,7 @@ A theme is just a folder laid out like a site:
 ```
 themes/my-theme/
   config.yaml     # config defaults the theme provides (optional)
-  templates/      # Tera layouts, partials, macros
+  templates/      # Tera layouts, partials, components
   archives/       # collection/taxonomy archive pages, feeds
   static/         # stylesheets, fonts, scripts
   content/        # starter content, copied by `italic scaffold` (optional)

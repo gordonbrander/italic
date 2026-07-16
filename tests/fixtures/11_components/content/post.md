@@ -5,6 +5,6 @@ template: base.html
 ---
 Watch this:
 
-{{ youtube::embed(id="abc") }}
+{{<youtube.embed id="abc" />}}
 
 Cool, right?

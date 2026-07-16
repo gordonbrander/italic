@@ -7,35 +7,26 @@
 
 use crate::doc::Doc;
 use crate::doc_index::DocIndex;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use tera::{Tera, Value};
+use tera::{Kwargs, State, Tera, TeraResult, Value};
 
 pub fn register(env: &mut Tera, index: Arc<DocIndex>) {
     env.register_function(
         "taxonomy",
-        move |args: &HashMap<String, Value>| -> tera::Result<Value> {
-            let name = taxonomy_name(args)?;
+        move |kwargs: Kwargs, _: &State| -> TeraResult<Value> {
+            let name = kwargs.must_get::<&str>("name")?;
             // Resolve each term's cached id list back to docs. Unknown taxonomy
-            // name → empty map. A `BTreeMap` keeps term iteration sorted.
+            // name → empty map. A `BTreeMap` keeps term iteration sorted (Tera 2
+            // maps preserve insertion order via the `preserve_order` feature).
             let mut out: BTreeMap<String, Vec<&Doc>> = BTreeMap::new();
-            if let Some(taxonomy) = index.get_taxonomy(&name) {
+            if let Some(taxonomy) = index.get_taxonomy(name) {
                 for (term, ids) in taxonomy {
                     let docs: Vec<&Doc> = ids.iter().filter_map(|id| index.doc(id)).collect();
                     out.insert(term.clone(), docs);
                 }
             }
-            tera::to_value(out).map_err(tera::Error::from)
+            Value::try_from_serializable(&out)
         },
     );
-}
-
-fn taxonomy_name(args: &HashMap<String, Value>) -> tera::Result<String> {
-    match args.get("name") {
-        Some(Value::String(s)) => Ok(s.clone()),
-        Some(_) => Err(tera::Error::msg("taxonomy: `name` must be a string")),
-        None => Err(tera::Error::msg(
-            "taxonomy: missing required `name` argument",
-        )),
-    }
 }
