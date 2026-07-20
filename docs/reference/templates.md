@@ -277,6 +277,16 @@ it cuts. Unlike Tera's built-in `truncate`, it never splits a word. Pair with
 {{ page.content | striptags | truncate_words(length=140) }}
 ```
 
+### `reading_time` — estimated reading time
+
+**Both phases.** Estimates reading time from a simple character count of the
+tag-stripped text (~1000 characters per minute) and returns it as a string like
+`4 min read`. Always at least `1 min read`.
+
+```jinja
+{{ page.content | reading_time }}
+```
+
 ### `markdown` — render Markdown to HTML
 
 **Both phases.** Renders a string of Markdown to HTML using the same renderer
@@ -323,7 +333,7 @@ a given field is absent.
 
 | Filter | Pipe | Emits |
 |--------|------|-------|
-| `metadata` | `page` | The umbrella: charset, viewport, generator, `<title>`, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links — a complete `<head>` in one call. |
+| `metadata` | `page` | The umbrella: charset, viewport, generator, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links. Everything except `<title>`, which you write yourself. |
 | `system_meta` | `page` | Italic/system-controlled tags. Today the generator tag (`<meta name="generator" content="italic <version>">`); the home for future engine-owned `<head>` metadata. |
 | `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
 | `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |
@@ -341,6 +351,7 @@ no kwarg needed (a legacy `site=site` kwarg is accepted and ignored).
 
 ```jinja
 <head>
+  <title>{{ page.title }} · {{ site.title }}</title>
   {{ page | metadata }}
 </head>
 ```
