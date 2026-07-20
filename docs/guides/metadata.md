@@ -17,6 +17,7 @@ For a complete, sensible `<head>`, pipe `page` through `metadata`:
 
 ```jinja
 <head>
+  <title>{{ page.title }} · {{ site.title }}</title>
   {{ page | metadata }}
 </head>
 ```
@@ -25,11 +26,12 @@ The filters read the `site` context variable themselves, so there's nothing to
 pass in.
 
 That emits, in order: `<meta charset>`, viewport, the generator tag
-(`<meta name="generator" content="italic <version>">`), `<title>` (`Page · Site`),
-the description, keywords, `robots noindex` for [drafts](drafts.md), the canonical
-link, the standard.site proof link (for [published](publishing-atproto.md)
-pages), Open Graph tags, the Twitter card, JSON-LD, and a feed-discovery
-`<link>` for each configured [feed](archives.md).
+(`<meta name="generator" content="italic <version>">`), the description,
+keywords, `robots noindex` for [drafts](drafts.md), the canonical link, the
+standard.site proof link (for [published](publishing-atproto.md) pages), Open
+Graph tags, the Twitter card, JSON-LD, and a feed-discovery `<link>` for each
+configured [feed](archives.md). The umbrella deliberately does **not** emit
+`<title>` — the title is yours to write, as above.
 
 On non-article pages (a home or landing page), pass `type="website"`:
 

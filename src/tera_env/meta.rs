@@ -12,6 +12,7 @@
 //!
 //! ```html
 //! <head>
+//!   <title>{{ page.title }} · {{ site.title }}</title>
 //!   {{ page | metadata }}                       {# umbrella one-liner #}
 //! </head>
 //! ```
@@ -476,17 +477,15 @@ fn render_feed_links(site: &Value, cfg: &MetaCfg) -> String {
     join(links)
 }
 
-/// The umbrella: a complete, sensible `<head>` block in one call. Themes that want
-/// finer control compose the individual filters instead.
+/// The umbrella: a complete, sensible `<head>` block in one call — everything
+/// except `<title>`, which themes write themselves for authorial control.
+/// Themes that want finer control compose the individual filters instead.
 fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> String {
     let mut blocks: Vec<String> = vec![
         "<meta charset=\"utf-8\">".to_string(),
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">".to_string(),
     ];
     blocks.extend(render_system_meta());
-    if let Some(t) = page_title(page, site) {
-        blocks.push(format!("<title>{}</title>", html::escape(&t)));
-    }
     blocks.extend(render_description(page, site));
     blocks.extend(render_keywords(page));
     // Drafts (rendered locally via `serve`/`watch` or `--drafts`) should never be
@@ -507,17 +506,6 @@ fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> 
         blocks.push(feeds);
     }
     join(blocks)
-}
-
-/// `<title>` text for the umbrella: `Page · Site` when both exist, else whichever
-/// is present.
-fn page_title(page: &Value, site: &Value) -> Option<String> {
-    match (field(page, "title"), field(site, "title")) {
-        (Some(p), Some(s)) => Some(format!("{} · {}", p, s)),
-        (Some(p), None) => Some(p.to_string()),
-        (None, Some(s)) => Some(s.to_string()),
-        (None, None) => None,
-    }
 }
 
 #[cfg(test)]
@@ -763,6 +751,11 @@ mod tests {
     #[test]
     fn metadata_umbrella_includes_generator() {
         assert!(render("metadata", "page", "site=site").contains(&generator_tag()));
+    }
+
+    #[test]
+    fn metadata_umbrella_emits_no_title_tag() {
+        assert!(!render("metadata", "page", "site=site").contains("<title>"));
     }
 
     #[test]
