@@ -61,6 +61,11 @@ credentials — no [`atproto:`](config.md#atproto) block is needed (see the
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--dry-run` | off | Build records and report what would change, making no network calls. |
+| `--yes` | off | Skip the confirmation prompt before creating new [Bluesky posts](../guides/publishing-atproto.md#bluesky-posts). Required in CI when posts are pending (stdin is not a terminal). |
+
+With [`atproto.bsky.enabled`](config.md#atproto), docs carrying `bsky:`
+frontmatter also get an `app.bsky.feed.post` announcement — created once, then
+recorded in the committed `.italic/bsky.yaml`, and never touched again.
 
 Drafts are never published (the build runs with drafts excluded). Your account
 DID and app password come from the environment (`ITALIC_ATPROTO_DID`,
@@ -75,8 +80,8 @@ italic atproto publish             # sync document + publication records
 ## `italic atproto status`
 
 Compare the records your site *should* have against what your PDS actually
-holds (via `com.atproto.repo.listRecords`) — the PDS is the source of truth;
-there is no local state file. Networked, authenticated, and **read-only** — it
+holds (via `com.atproto.repo.listRecords`) — the PDS is the source of truth
+for documents. Networked, authenticated, and **read-only** — it
 never writes a record. Like `atproto publish` it builds the site index (drafts
 excluded, no HTML written) to derive the expected records, so it requires the
 same inputs: `site.title`, `site.url`, and credentials — no
@@ -86,9 +91,12 @@ For each expected record it reports `ok` (present and identical to the locally
 built record), `CHANGED` (present but differing — unpublished local edits, or
 rewritten by another client; re-publish to reconcile), or `MISSING` (absent —
 re-publish to fix), plus `ORPHANED` for records on the PDS that reference your
-publication but have no matching local doc (deleted or renamed sources). If
-anything is MISSING or CHANGED the command **exits nonzero**, so it can gate a
-CI step; orphans only warn.
+publication but have no matching local doc (deleted or renamed sources). With
+[Bluesky posts](../guides/publishing-atproto.md#bluesky-posts) enabled it also
+reports `POST PENDING` for opted-in docs whose post hasn't been created, and
+`STALE` for `.italic/bsky.yaml` entries whose doc has gone away. If anything is
+MISSING, CHANGED, or POST PENDING the command **exits nonzero**, so it can gate
+a CI step; orphans and stale entries only warn.
 
 ```sh
 italic atproto status   # check every published record

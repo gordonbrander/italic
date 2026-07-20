@@ -35,6 +35,8 @@ pub struct Atproto {
     pub verification: bool,
     /// `site.standard.publication` presentation (icon, theme).
     pub publication: Publication,
+    /// Bluesky announcement posts (`app.bsky.feed.post`); see [`Bsky`].
+    pub bsky: Bsky,
 }
 
 impl Default for Atproto {
@@ -44,8 +46,23 @@ impl Default for Atproto {
             collections: vec![crate::config::ALL.to_string()],
             verification: true,
             publication: Publication::default(),
+            bsky: Bsky::default(),
         }
     }
+}
+
+/// The `bsky:` sub-block: publishing `app.bsky.feed.post` announcements for
+/// docs that opt in via `bsky:` frontmatter. Off by default — creating posts
+/// is outward-facing, so it takes an explicit `enabled: true`.
+#[derive(Debug, Clone, Default)]
+pub struct Bsky {
+    /// Master switch for creating posts. Default false.
+    pub enabled: bool,
+    /// Docs dated before this never get posts — the guard against mass-posting
+    /// an old archive on first publish. `None` means "3 days before now",
+    /// resolved at publish time (the config stays a pure representation of the
+    /// file).
+    pub since: Option<chrono::NaiveDate>,
 }
 
 /// Presentation settings for the one `site.standard.publication` record. Its
@@ -85,7 +102,7 @@ pub struct Rgb {
 pub fn parse_atproto(map: &Mapping) -> Result<Atproto> {
     for key in map.keys() {
         match key.as_str() {
-            Some("pds_host" | "collections" | "verification" | "publication") => {}
+            Some("pds_host" | "collections" | "verification" | "publication" | "bsky") => {}
             Some("collection") => {
                 return Err(anyhow!(
                     "atproto: `collection` has been replaced by `collections`, a list — \
@@ -95,7 +112,7 @@ pub fn parse_atproto(map: &Mapping) -> Result<Atproto> {
             other => {
                 return Err(anyhow!(
                     "atproto: unknown key `{}` (allowed: pds_host, collections, \
-                     verification, publication)",
+                     verification, publication, bsky)",
                     other.unwrap_or("<non-string>")
                 ));
             }
@@ -111,12 +128,37 @@ pub fn parse_atproto(map: &Mapping) -> Result<Atproto> {
         None => Publication::default(),
     };
 
+    let bsky = match submap(map, "bsky")? {
+        Some(m) => parse_bsky(m)?,
+        None => Bsky::default(),
+    };
+
     Ok(Atproto {
         pds_host,
         collections,
         verification,
         publication,
+        bsky,
     })
+}
+
+/// Parse the `bsky:` sub-map into a [`Bsky`].
+fn parse_bsky(map: &Mapping) -> Result<Bsky> {
+    reject_unknown(map, &["enabled", "since"], "atproto.bsky")?;
+    let enabled = match map.get(Value::String("enabled".into())) {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(anyhow!("atproto.bsky: `enabled` must be a boolean")),
+    };
+    let since = match string(map, "since")? {
+        None => None,
+        Some(value) => Some(
+            chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|_| {
+                anyhow!("atproto.bsky: `since` must be a date like 2026-01-01 (got `{value}`)")
+            })?,
+        ),
+    };
+    Ok(Bsky { enabled, since })
 }
 
 /// Parse `collections:` — a list of collection names, mirroring the top-level
@@ -418,6 +460,38 @@ mod tests {
     #[test]
     fn unknown_top_level_key_errors() {
         let err = format!("{:#}", parse("pds_hsot: x\n").unwrap_err());
+        assert!(err.contains("unknown key"), "{err}");
+    }
+
+    #[test]
+    fn bsky_defaults_to_disabled() {
+        let p = parse("{}\n").unwrap();
+        assert!(!p.bsky.enabled);
+        assert!(p.bsky.since.is_none());
+    }
+
+    #[test]
+    fn bsky_block_parses() {
+        let p = parse("bsky:\n  enabled: true\n  since: 2026-01-15\n").unwrap();
+        assert!(p.bsky.enabled);
+        assert_eq!(p.bsky.since, chrono::NaiveDate::from_ymd_opt(2026, 1, 15));
+    }
+
+    #[test]
+    fn bsky_bad_since_errors() {
+        let err = format!("{:#}", parse("bsky:\n  since: yesterday\n").unwrap_err());
+        assert!(err.contains("2026-01-01"), "{err}");
+    }
+
+    #[test]
+    fn bsky_non_bool_enabled_errors() {
+        let err = format!("{:#}", parse("bsky:\n  enabled: yes please\n").unwrap_err());
+        assert!(err.contains("boolean"), "{err}");
+    }
+
+    #[test]
+    fn bsky_unknown_key_errors() {
+        let err = format!("{:#}", parse("bsky:\n  enable: true\n").unwrap_err());
         assert!(err.contains("unknown key"), "{err}");
     }
 }

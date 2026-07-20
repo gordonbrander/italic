@@ -10,20 +10,12 @@ record that represents your site. Other ATProto apps (Leaflet, Pckt,
 Offprint, AppViews) can then discover, index, recommend, and port your
 writing.
 
-**italic stays a static generator.** Publishing is a *client* operation — it
-writes records into a PDS you already own — not a server you have to run. Keep
-hosting your HTML wherever you host it today (GitHub Pages, Netlify, …);
-publishing to the ATmosphere is additive.
-
 ## How it differs from `build`
 
-Everything italic does is pure, offline, and stateless: `content/` in,
-`public/` out, no memory between runs. Publishing keeps the stateless part but
-is **networked and authenticated**:
 
 - It talks to your PDS over HTTP.
 - It needs **credentials**.
-- Record keys are deterministic hashes of your canonical URLs, so re-running
+- standard.site rkeys are deterministic hashes of your canonical URLs, so re-running
   *updates* records in place instead of creating duplicates — no local
   bookkeeping needed. The PDS itself is the record of what's published.
 
@@ -45,15 +37,8 @@ build` to update your site; run `italic atproto publish` to update the PDS.
    # did:plc:abc123…
    ```
 
-3. **Provide credentials** via environment variables — never `config.yaml`:
-
-   ```sh
-   export ITALIC_ATPROTO_DID=did:plc:abc123…
-   export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-   ```
-
-   Rather than exporting these every session, you can put them in a gitignored
-   `.env` file in your project root, which italic loads automatically:
+3. **Provide credentials** Put the following environment variables in a gitignored
+   `.env` file in your project root (italic loads `.env` automatically):
 
    ```sh
    # .env  (gitignored — never commit your app password)
@@ -112,27 +97,26 @@ see below); the non-secret host falls back to the `atproto:` config:
 | DID | `ITALIC_ATPROTO_DID` | **never** |
 | App password | `ITALIC_ATPROTO_APP_PASSWORD` | **never** |
 
-Export the env vars in your shell before publishing (or pass them inline on the
+Export the env vars via a `.env` file in your site directory (or pass them inline on the
 command, or set them in your CI secrets):
 
 ```sh
-export ITALIC_ATPROTO_DID=did:plc:abc123…
-export ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+# .env  (gitignored — never commit your app password)
+ITALIC_ATPROTO_DID=did:plc:abc123…
+ITALIC_ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-italic also loads a `.env` file from the project root automatically (it is
-gitignored by default), so you can keep these there instead of exporting them
-each session. A value exported in the shell takes precedence over the `.env`
+A value exported in the shell takes precedence over the `.env`
 file.
 
-## No local state
+## No local state (for documents)
 
-Publishing keeps no local state. Record keys are pure functions of `site.url`
-(+ `base_path`) and each document's output path, so every run derives the same
-addresses and `putRecord` updates them in place; an interrupted run is simply
-re-run. To see what's actually published, ask the PDS —
-`italic atproto status` does exactly that (see
-[Verifying your records](verifying-atproto.md)).
+italic's standard.site document rkeys are pure functions of
+`site.url` (+ `base_path`) and each document's output path. This makes publishing
+standard.site records idempotent. Every run derives the same addresses and
+`putRecord` updates them in place; an interrupted run is simply re-run.
+To see what's actually published, ask the PDS via `italic atproto status`
+(see [Verifying your records](verifying-atproto.md)).
 
 Re-publishing is also cheap: each run reads back what the PDS holds and
 compares it to the freshly built records, skipping any that are unchanged — no
@@ -140,8 +124,9 @@ blob upload, no repo commit, nothing on the firehose. The summary reports the
 split (`done: 2 put, 40 unchanged`), so publishing after editing one post
 writes exactly one record.
 
-> Earlier versions of italic recorded publishes in `.italic/atproto.yaml`. That
-> file is no longer read or written — you can delete it.
+The one exception is [Bluesky posts](#bluesky-posts): their record keys are
+assigned by the PDS at create time and a post must never be created twice, so
+created posts are remembered in a committed YAML file, `.italic/bsky.yaml`.
 
 ## Publishing full posts
 
@@ -179,6 +164,74 @@ warning instead of failing.
 
 A shared image (typically the `site.image` default) is uploaded once per run,
 not once per document. `--dry-run` shows each document's resolved cover source.
+
+## Bluesky posts
+
+Besides the long-form document record, italic can announce a doc with a short
+[`app.bsky.feed.post`](https://docs.bsky.app/docs/advanced-guides/posts) — a
+regular Bluesky post from your account, carrying your text plus a link card
+back to the article. The document record cross-links it via its `bskyPostRef`
+field, so apps that read standard.site documents can find the announcement
+(and its replies) — comments for your post, tracked off-platform.
+
+Posting is doubly opt-in. Turn the feature on in config:
+
+```yaml
+atproto:
+  bsky:
+    enabled: true
+```
+
+…and give each doc you want announced a `bsky:` frontmatter key with the post
+text (≤ 300 graphemes — Bluesky's cap):
+
+```yaml
+---
+title: Composting for beginners
+bsky: "New post: composting for beginners. Everything I wish I'd known 🌱"
+---
+```
+
+Docs without a `bsky:` key are simply skipped — omitting the key is how you
+deliberately not-announce something. The post carries a link card
+(`app.bsky.embed.external`) built from the doc's canonical URL, title, and
+summary, with the doc's [cover image](#cover-images) as the thumbnail.
+
+### Posts are created once
+
+Documents update in place, but a Bluesky post is a social artifact — people
+reply to it, like it, repost it — so italic **creates each doc's post exactly
+once and never updates or deletes it**. Editing the `bsky:` text after the
+post exists does nothing. Created posts are recorded in `.italic/bsky.yaml`, a
+human-readable file mapping each doc to its post:
+
+```yaml
+version: 1
+posts:
+  posts/composting.md:
+    uri: at://did:plc:abc123/app.bsky.feed.post/3lwabc22xyz
+    cid: bafyreib2…
+    createdAt: 2026-07-20T18:04:11.000Z
+```
+
+**Commit this file** — it is what prevents duplicate posts. If you rename a
+doc, move its entry to the new id_path, or the renamed doc will look new and
+get a second post. `italic atproto status` reports docs whose post is still
+pending (`POST PENDING`) and state entries whose doc has gone away (`STALE`).
+
+### Guard rails
+
+Two guards prevent accidentally blasting posts:
+
+- **A date cutoff.** Docs dated before `atproto.bsky.since` never get posts;
+  when `since` is unset it defaults to **3 days before now**, so enabling the
+  feature over an old archive announces nothing by accident. Set `since`
+  explicitly to announce older docs.
+- **A confirmation prompt.** Before creating anything, `italic atproto
+  publish` lists every pending post and asks. Pass `--yes` to skip the prompt
+  (required in CI, where stdin isn't a terminal).
+
+`--dry-run` shows pending posts too, without touching the network.
 
 ## Verification artifacts
 
@@ -244,6 +297,9 @@ atproto:
       foreground: "#eeeeee"
       accent: "#e94560"
       accent_foreground: "#ffffff"
+  bsky:
+    enabled: true                 # publish Bluesky announcement posts
+    since: 2026-01-01             # cutoff; defaults to 3 days before now
 ```
 
 The publication record's `name`/`url`/`description` come from `site.title`,
