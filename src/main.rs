@@ -52,6 +52,9 @@ enum AtprotoCommand {
         /// Build records and show what would change, but make no network calls
         #[arg(long)]
         dry_run: bool,
+        /// Skip the confirmation prompt before creating new Bluesky posts
+        #[arg(long)]
+        yes: bool,
     },
     /// Check the site's expected ATProto records exist on your PDS
     Status,
@@ -68,8 +71,8 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Build { drafts } => italic::build(drafts),
         Command::Atproto { command } => match command {
-            AtprotoCommand::Publish { dry_run } => {
-                italic::atproto_publish(italic::atproto::Options { dry_run })
+            AtprotoCommand::Publish { dry_run, yes } => {
+                italic::atproto_publish(italic::atproto::Options { dry_run, yes })
             }
             AtprotoCommand::Status => italic::atproto_status(),
             AtprotoCommand::Did { handle } => italic::atproto_did(&handle),

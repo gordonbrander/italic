@@ -1,8 +1,10 @@
 //! The `atproto status` layer: compare what *should* be published (records
 //! built from the [`DocIndex`], through the exact same path `italic atproto
 //! publish` uses) against what the PDS actually holds, read back via
-//! `com.atproto.repo.listRecords`. The PDS is the source of truth — there is no
-//! local state file.
+//! `com.atproto.repo.listRecords`. The PDS is the source of truth for
+//! documents; created Bluesky posts live in the state file
+//! ([`crate::atproto::state`]), which threads each doc's `bskyPostRef` into
+//! its expected record and surfaces pending/stale posts.
 //!
 //! Unlike [`crate::atproto::publish`], which is networked *and* mutating,
 //! `status` is networked but read-only. Each expected record (the publication
@@ -24,13 +26,15 @@
 //! can gate on it; orphans only warn, since the fix (deleteRecord) is manual.
 
 use crate::atproto::client::{Client, Credentials};
-use crate::atproto::{compare, document};
+use crate::atproto::document::StrongRef;
+use crate::atproto::{compare, document, state};
 use crate::config::Config;
 use crate::doc_index::DocIndex;
 use crate::site_data::SiteData;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// A locally-built record and the rkey it should live at.
 struct Expected {
@@ -117,13 +121,30 @@ pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()
     let docs = index.union_collections(&atproto.collections);
     let (site_image, static_roots) = super::cover_inputs(config, site_data);
     let mut covers = super::Covers::new(site_image, &static_roots);
+    // Bluesky-post state: existing refs are threaded into the expected records
+    // (same as publish — otherwise every doc with a post would read CHANGED),
+    // pending posts are reported, and stale entries flagged as advisories.
+    let bsky_state = state::load(Path::new(state::STATE_PATH))?;
+    let post_pending: Vec<String> = super::plan_bsky_posts(atproto, &docs, &bsky_state)?
+        .iter()
+        .map(|p| state::state_key(p.doc))
+        .collect();
+
     let expected: BTreeMap<String, Expected> = docs
         .iter()
         .map(|doc| {
             let url = document::canonical_url(doc, Some(site_url), &config.base_path);
-            let record = document::document(doc, &site_uri, &config.base_path, covers.derive(doc)?);
+            let key = state::state_key(doc);
+            let bsky_ref = bsky_state.posts.get(&key).map(StrongRef::from);
+            let record = document::document(
+                doc,
+                &site_uri,
+                &config.base_path,
+                covers.derive(doc)?,
+                bsky_ref,
+            );
             Ok((
-                doc.id_path.to_string_lossy().replace('\\', "/"),
+                key,
                 Expected {
                     rkey: document::document_rkey(&url),
                     record,
@@ -131,6 +152,14 @@ pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()
             ))
         })
         .collect::<Result<_>>()?;
+
+    // State entries whose doc no longer exists locally (deleted or renamed).
+    let stale_posts: Vec<(String, String)> = bsky_state
+        .posts
+        .iter()
+        .filter(|(key, _)| !expected.contains_key(*key))
+        .map(|(key, post)| (key.clone(), post.uri.clone()))
+        .collect();
 
     let icon = match &atproto.publication.icon {
         Some(path) => Some(super::derive_image(path)?),
@@ -143,18 +172,31 @@ pub fn run(config: &Config, site_data: &SiteData, index: &DocIndex) -> Result<()
         .enable_all()
         .build()
         .context("creating tokio runtime")?;
-    runtime.block_on(check(&creds, site_url, &site_uri, &expected, &expected_pub))
+    runtime.block_on(check(
+        &creds,
+        site_url,
+        &site_uri,
+        &expected,
+        &expected_pub,
+        &post_pending,
+        &stale_posts,
+    ))
 }
 
 /// The authenticated read pass: log in, list this repo's records, and classify
 /// them against the expected set. Returns `Err` if anything is MISSING or
-/// CHANGED.
+/// CHANGED, or if Bluesky posts are pending (`italic atproto publish` fixes
+/// all three). Stale state-file entries only warn — the post is untouched and
+/// the fix (moving or removing the entry) is manual.
+#[allow(clippy::too_many_arguments)]
 async fn check(
     creds: &Credentials,
     site_url: &str,
     site_uri: &str,
     expected: &BTreeMap<String, Expected>,
     expected_pub: &document::Publication,
+    post_pending: &[String],
+    stale_posts: &[(String, String)],
 ) -> Result<()> {
     let client = Client::login(creds).await?;
     println!("authenticated as {} ({})", client.handle(), client.did());
@@ -208,13 +250,23 @@ async fn check(
     for uri in &report.orphaned {
         println!("  ORPHANED {uri} (no matching local doc — deleted or renamed?)");
     }
+    for id_path in post_pending {
+        println!("  POST PENDING {id_path} — bsky post not yet created");
+    }
+    for (key, uri) in stale_posts {
+        println!(
+            "  STALE    {} entry {key} → {uri} (doc deleted or renamed — entry kept, post untouched)",
+            state::STATE_PATH
+        );
+    }
 
     println!(
-        "{} published, {} changed, {} missing, {} orphaned",
+        "{} published, {} changed, {} missing, {} orphaned, {} post(s) pending",
         report.published.len(),
         report.changed.len(),
         report.missing.len(),
-        report.orphaned.len()
+        report.orphaned.len(),
+        post_pending.len()
     );
 
     if !report.orphaned.is_empty() {
@@ -224,9 +276,11 @@ async fn check(
         );
     }
 
-    let out_of_sync = report.missing.len() + report.changed.len() + pub_status;
+    let out_of_sync = report.missing.len() + report.changed.len() + pub_status + post_pending.len();
     if out_of_sync > 0 {
-        bail!("{out_of_sync} record(s) missing or changed — run `italic atproto publish`");
+        bail!(
+            "{out_of_sync} record(s) missing, changed, or pending — run `italic atproto publish`"
+        );
     }
     Ok(())
 }
@@ -251,6 +305,7 @@ mod tests {
                 content: None,
                 text_content: None,
                 tags: vec![],
+                bsky_post_ref: None,
             },
         }
     }

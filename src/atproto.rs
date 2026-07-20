@@ -4,28 +4,35 @@
 //! Unlike the build pipeline — pure, offline, deterministic — publishing is
 //! networked and authenticated. It reuses the frozen index from
 //! [`crate::build::build_index`] (no HTML is rendered), then talks to the PDS
-//! over `com.atproto.*` XRPC. There is no local state: record keys are
+//! over `com.atproto.*` XRPC. Documents keep no local state: record keys are
 //! deterministic hashes of the canonical URL / site origin, so re-running
 //! *updates* records in place via `putRecord`, and the PDS itself is the source
 //! of truth for what is published (see [`status`]). Before writing, each record
 //! is compared against the value the PDS already holds ([`compare`]); unchanged
 //! records are skipped entirely — no blob upload, no repo commit.
+//!
+//! Bluesky announcement posts ([`bsky`]) are the one stateful exception: their
+//! lexicon requires PDS-assigned TID rkeys and posts are create-once, so
+//! created posts are recorded in a committed YAML state file ([`state`]).
 
+pub mod bsky;
 pub mod client;
 pub mod compare;
 pub mod config;
 pub mod cover;
 pub mod document;
+pub mod state;
 pub mod status;
 
 use crate::atproto::client::{Client, Credentials};
 use crate::atproto::config::Atproto;
 use crate::atproto::cover::Cover;
+use crate::atproto::document::StrongRef;
 use crate::config::Config;
 use crate::doc::Doc;
 use crate::doc_index::DocIndex;
 use crate::site_data::SiteData;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use atrium_api::types::{BlobRef, Unknown};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -36,6 +43,8 @@ use std::time::Duration;
 pub struct Options {
     /// Build records and diff against state, but make no network calls.
     pub dry_run: bool,
+    /// Skip the interactive confirmation before creating new Bluesky posts.
+    pub yes: bool,
 }
 
 /// Delay between record writes, a courtesy throttle against the PDS's write rate
@@ -77,8 +86,27 @@ pub fn publish(
     };
     let expected_pub = publication_record(config, site_data, derived_icon)?;
 
+    // Bluesky post planning is offline: read the state file, then decide which
+    // docs get a new post this run (frontmatter opt-in, create-once, cutoff).
+    let bsky_state = state::load(Path::new(state::STATE_PATH))?;
+    let pending = plan_bsky_posts(atproto, &docs, &bsky_state)?;
+
     if options.dry_run {
-        return dry_run(config, atproto, &docs, site_image, &static_roots);
+        return dry_run(
+            config,
+            atproto,
+            &docs,
+            site_image,
+            &static_roots,
+            &pending,
+            &bsky_state,
+        );
+    }
+
+    // New posts are outward-facing and create-once, so list them and ask
+    // before any network work. `--yes` skips the prompt (CI).
+    if !pending.is_empty() && !options.yes {
+        confirm_posts(&pending)?;
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -92,17 +120,129 @@ pub fn publish(
         &docs,
         site_image,
         &static_roots,
+        BskyWork {
+            pending,
+            state: bsky_state,
+        },
     ))
+}
+
+/// A Bluesky post that would be created this run.
+struct PendingPost<'a> {
+    doc: &'a Doc,
+    text: String,
+}
+
+/// The Bluesky-post work a sync run carries: which docs get a new post, plus
+/// the loaded state file that records created posts (and receives new ones).
+struct BskyWork<'a> {
+    pending: Vec<PendingPost<'a>>,
+    state: state::State,
+}
+
+/// The default `atproto.bsky.since` cutoff: 3 days before now. Guards a first
+/// publish over an old archive from mass-posting; announcing older docs takes
+/// an explicit `since`.
+const DEFAULT_CUTOFF_DAYS: u64 = 3;
+
+/// Decide (offline) which docs get a new Bluesky post: opted in via `bsky:`
+/// frontmatter, not already in `state` (create-once), and dated on or after
+/// the cutoff. Empty when `atproto.bsky.enabled` is false — with a warning if
+/// docs have opted in, so the frontmatter isn't silently inert. Invalid
+/// `bsky:` values are hard errors here, before any network work.
+fn plan_bsky_posts<'a>(
+    atproto: &Atproto,
+    docs: &[&'a Doc],
+    state: &state::State,
+) -> Result<Vec<PendingPost<'a>>> {
+    if !atproto.bsky.enabled {
+        let opted_in = docs.iter().filter(|d| d.data.get("bsky").is_some()).count();
+        if opted_in > 0 {
+            eprintln!(
+                "warning: {opted_in} doc(s) have bsky: frontmatter but atproto.bsky.enabled \
+                 is false — no posts will be created"
+            );
+        }
+        return Ok(Vec::new());
+    }
+
+    let cutoff = atproto.bsky.since.unwrap_or_else(|| {
+        chrono::Utc::now().date_naive() - chrono::Days::new(DEFAULT_CUTOFF_DAYS)
+    });
+
+    let mut pending = Vec::new();
+    let mut skipped_old = 0usize;
+    for doc in docs {
+        let Some(text) = bsky::frontmatter_text(doc)? else {
+            continue;
+        };
+        if state.posts.contains_key(&state::state_key(doc)) {
+            continue; // Create-once: this doc already has its post.
+        }
+        if doc.date.date_naive() < cutoff {
+            skipped_old += 1;
+            continue;
+        }
+        pending.push(PendingPost { doc, text });
+    }
+    if skipped_old > 0 {
+        let source = if atproto.bsky.since.is_some() {
+            "atproto.bsky.since".to_string()
+        } else {
+            format!(
+                "default cutoff: {DEFAULT_CUTOFF_DAYS} days — set atproto.bsky.since to override"
+            )
+        };
+        println!("bsky: {skipped_old} doc(s) dated before {cutoff} skipped ({source})");
+    }
+    Ok(pending)
+}
+
+/// List the pending posts and ask for confirmation. Bails when declined — the
+/// whole run aborts rather than publishing documents that would gain their
+/// `bskyPostRef` (and churn) on the next run — and when stdin isn't a
+/// terminal, since silently posting from CI is exactly the accident this
+/// prompt exists to prevent.
+fn confirm_posts(pending: &[PendingPost]) -> Result<()> {
+    use std::io::{IsTerminal, Write};
+    let n = pending.len();
+    println!("{n} new Bluesky post(s) will be created (posts are never updated or deleted):");
+    for post in pending {
+        println!(
+            "  {} — \"{}\"",
+            post.doc.id_path.display(),
+            bsky::preview(&post.text, 60)
+        );
+    }
+    if !std::io::stdin().is_terminal() {
+        bail!(
+            "{n} new Bluesky post(s) pending but stdin is not a terminal — \
+             re-run with --yes to confirm"
+        );
+    }
+    print!("Create {n} post(s)? [y/N] ");
+    std::io::stdout().flush().context("flushing stdout")?;
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .context("reading confirmation")?;
+    match line.trim().to_lowercase().as_str() {
+        "y" | "yes" => Ok(()),
+        _ => bail!("aborted — no posts created, nothing published"),
+    }
 }
 
 /// Print what a real run would do, without any network calls (cover resolution
 /// is read-only filesystem checks).
+#[allow(clippy::too_many_arguments)]
 fn dry_run(
     config: &Config,
     atproto: &Atproto,
     docs: &[&Doc],
     site_image: Option<&str>,
     static_roots: &[PathBuf],
+    pending: &[PendingPost],
+    bsky_state: &state::State,
 ) -> Result<()> {
     // `publish` guarantees `site_url` is set before calling us.
     let site_url = config
@@ -139,6 +279,23 @@ fn dry_run(
             document::document_rkey(&url)
         );
     }
+    if atproto.bsky.enabled {
+        println!("  bsky posts ({}):", pending.len());
+        for post in pending {
+            println!(
+                "    create post for {} — \"{}\"",
+                post.doc.id_path.display(),
+                bsky::preview(&post.text, 60)
+            );
+        }
+        if !bsky_state.posts.is_empty() {
+            println!(
+                "    {} existing post(s) in {} (never touched)",
+                bsky_state.posts.len(),
+                state::STATE_PATH
+            );
+        }
+    }
     Ok(())
 }
 
@@ -149,6 +306,12 @@ fn dry_run(
 /// their cover uploaded (cached per file so a shared default uploads once) and
 /// are put at their stable rkey. Every write is idempotent — rkeys are
 /// deterministic — so an interrupted run is simply re-run.
+///
+/// The one non-idempotent exception is Bluesky posts (`bsky.pending`): each is
+/// created once with a PDS-assigned TID rkey, recorded in the state file
+/// *immediately* (so a crash after createRecord can't repost on re-run), and
+/// referenced from the doc's record via `bskyPostRef`. The ref is threaded
+/// from state unconditionally, so refs survive toggling `bsky.enabled` off.
 async fn sync(
     config: &Config,
     atproto: &Atproto,
@@ -156,6 +319,7 @@ async fn sync(
     docs: &[&Doc],
     site_image: Option<&str>,
     static_roots: &[PathBuf],
+    mut bsky_work: BskyWork<'_>,
 ) -> Result<()> {
     let creds = Credentials::load(atproto)?;
     let client = Client::login(&creds).await?;
@@ -185,19 +349,61 @@ async fn sync(
 
     let mut put_docs = 0usize;
     let mut unchanged = 0usize;
+    let mut posts_created = 0usize;
     let mut covers = Covers::new(site_image, static_roots);
+
+    // Pending post text by id_path, for the per-doc loop below.
+    let pending: HashMap<&Path, &str> = bsky_work
+        .pending
+        .iter()
+        .map(|p| (p.doc.id_path.as_path(), p.text.as_str()))
+        .collect();
 
     for doc in docs {
         let url = document::canonical_url(doc, config.site_url.as_deref(), &config.base_path);
         let rkey = document::document_rkey(&url);
 
+        // Create the doc's Bluesky post first (if pending), so the strongRef
+        // exists for the document record built below. State is saved after
+        // each create — the post is the one write that must never repeat.
+        if let Some(text) = pending.get(doc.id_path.as_path()) {
+            let thumb = covers.upload(&client, doc).await?;
+            let created_at =
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let post = bsky::post(text, &url, &doc.title, &doc.summary, thumb, &created_at);
+            let written = client.create_record(bsky::POST_NSID, &post).await?;
+            println!(
+                "  post created for {}: {}",
+                doc.id_path.display(),
+                written.uri
+            );
+            bsky_work.state.posts.insert(
+                state::state_key(doc),
+                state::PostRef {
+                    uri: written.uri,
+                    cid: written.cid,
+                    created_at,
+                },
+            );
+            state::save(&bsky_work.state, Path::new(state::STATE_PATH))?;
+            posts_created += 1;
+            throttle().await;
+        }
+
         // Expected record with a locally-derived cover ref; if the PDS already
         // holds an identical record, skip the upload and the put entirely.
+        // The bskyPostRef comes from state — existing, or just created above.
+        let bsky_ref = bsky_work
+            .state
+            .posts
+            .get(&state::state_key(doc))
+            .map(StrongRef::from);
         let mut record = document::document(
             doc,
             &publication_uri,
             &config.base_path,
             covers.derive(doc)?,
+            bsky_ref,
         );
         if remote
             .get(&rkey)
@@ -217,7 +423,15 @@ async fn sync(
         throttle().await;
     }
 
-    println!("done: {put_docs} put, {unchanged} unchanged");
+    if posts_created > 0 {
+        println!("done: {put_docs} put, {unchanged} unchanged, {posts_created} post(s) created");
+        println!(
+            "note: commit {} — it prevents duplicate posts",
+            state::STATE_PATH
+        );
+    } else {
+        println!("done: {put_docs} put, {unchanged} unchanged");
+    }
     Ok(())
 }
 
@@ -505,6 +719,123 @@ mod tests {
             publication_record(&config, &site_data(&[]), None).unwrap_err()
         );
         assert!(err.contains("site.title"), "{err}");
+    }
+
+    /// A doc with `bsky:` frontmatter text and the given date.
+    fn bsky_doc(id_path: &str, text: &str, date: &str) -> Doc {
+        let mut data = Mapping::new();
+        data.insert("bsky".into(), text.into());
+        Doc {
+            id_path: std::path::PathBuf::from(id_path),
+            data,
+            date: chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap()
+                .and_utc(),
+            ..Doc::default()
+        }
+    }
+
+    fn bsky_atproto(enabled: bool, since: Option<&str>) -> Atproto {
+        Atproto {
+            bsky: crate::atproto::config::Bsky {
+                enabled,
+                since: since.map(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()),
+            },
+            ..Atproto::default()
+        }
+    }
+
+    #[test]
+    fn plan_bsky_posts_disabled_is_empty() {
+        let doc = bsky_doc("a.md", "hello", "2026-07-20");
+        let pending = plan_bsky_posts(
+            &bsky_atproto(false, None),
+            &[&doc],
+            &state::State::default(),
+        )
+        .unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn plan_bsky_posts_skips_docs_without_frontmatter() {
+        let plain = Doc {
+            id_path: std::path::PathBuf::from("plain.md"),
+            date: chrono::Utc::now(),
+            ..Doc::default()
+        };
+        let pending = plan_bsky_posts(
+            &bsky_atproto(true, Some("2020-01-01")),
+            &[&plain],
+            &state::State::default(),
+        )
+        .unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn plan_bsky_posts_respects_since_cutoff() {
+        let old = bsky_doc("old.md", "old post", "2025-01-01");
+        let new = bsky_doc("new.md", "new post", "2026-07-20");
+        let pending = plan_bsky_posts(
+            &bsky_atproto(true, Some("2026-01-01")),
+            &[&old, &new],
+            &state::State::default(),
+        )
+        .unwrap();
+        let ids: Vec<_> = pending.iter().map(|p| p.doc.id_path.clone()).collect();
+        assert_eq!(ids, vec![std::path::PathBuf::from("new.md")]);
+        assert_eq!(pending[0].text, "new post");
+    }
+
+    #[test]
+    fn plan_bsky_posts_default_cutoff_skips_old_docs() {
+        // No `since` configured → docs older than the 3-day default are skipped.
+        let old = bsky_doc("old.md", "old post", "2020-01-01");
+        let pending =
+            plan_bsky_posts(&bsky_atproto(true, None), &[&old], &state::State::default()).unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn plan_bsky_posts_is_create_once() {
+        let doc = bsky_doc("a.md", "hello", "2026-07-20");
+        let mut state = state::State::default();
+        state.posts.insert(
+            "a.md".into(),
+            state::PostRef {
+                uri: "at://did:plc:abc/app.bsky.feed.post/3lwa".into(),
+                cid: "bafy".into(),
+                created_at: "2026-07-19T00:00:00.000Z".into(),
+            },
+        );
+        let pending =
+            plan_bsky_posts(&bsky_atproto(true, Some("2020-01-01")), &[&doc], &state).unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn plan_bsky_posts_surfaces_invalid_frontmatter() {
+        let mut data = Mapping::new();
+        data.insert("bsky".into(), 42.into());
+        let doc = Doc {
+            id_path: std::path::PathBuf::from("bad.md"),
+            data,
+            ..Doc::default()
+        };
+        let err = format!(
+            "{:#}",
+            plan_bsky_posts(
+                &bsky_atproto(true, Some("2020-01-01")),
+                &[&doc],
+                &state::State::default()
+            )
+            .err()
+            .expect("non-string bsky: should error")
+        );
+        assert!(err.contains("bad.md"), "{err}");
     }
 
     #[test]

@@ -57,6 +57,26 @@ pub struct Document {
     pub text_content: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Strong reference to the doc's Bluesky announcement post, when one has
+    /// been created (see [`crate::atproto::state`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bsky_post_ref: Option<StrongRef>,
+}
+
+/// A `com.atproto.repo.strongRef` — a plain `{uri, cid}` object (no `$type`).
+#[derive(Debug, Clone, Serialize)]
+pub struct StrongRef {
+    pub uri: String,
+    pub cid: String,
+}
+
+impl From<&crate::atproto::state::PostRef> for StrongRef {
+    fn from(post: &crate::atproto::state::PostRef) -> Self {
+        Self {
+            uri: post.uri.clone(),
+            cid: post.cid.clone(),
+        }
+    }
 }
 
 /// An `at.markpub.markdown` content entry: the full document body as Markdown,
@@ -239,8 +259,16 @@ fn rfc3339(dt: &chrono::DateTime<chrono::Utc>) -> String {
 }
 
 /// Map a [`Doc`] to a `site.standard.document` record. `site_uri` is the
-/// publication AT-URI; `cover` is the pre-uploaded cover blob (if any).
-pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRef>) -> Document {
+/// publication AT-URI; `cover` is the pre-uploaded cover blob (if any);
+/// `bsky_post_ref` is the doc's announcement post from the bsky state file
+/// (if one has been created).
+pub fn document(
+    doc: &Doc,
+    site_uri: &str,
+    base_path: &str,
+    cover: Option<BlobRef>,
+    bsky_post_ref: Option<StrongRef>,
+) -> Document {
     let text = html::strip_tags(&doc.content);
     let text_content = if text.trim().is_empty() {
         None
@@ -285,6 +313,7 @@ pub fn document(doc: &Doc, site_uri: &str, base_path: &str, cover: Option<BlobRe
         content,
         text_content,
         tags,
+        bsky_post_ref,
     }
 }
 
@@ -439,6 +468,7 @@ mod tests {
             "at://did:plc:abc/site.standard.publication/self",
             "",
             None,
+            None,
         );
         let v = serde_json::to_value(&rec).unwrap();
         assert_eq!(v["$type"], "site.standard.document");
@@ -463,6 +493,30 @@ mod tests {
     }
 
     #[test]
+    fn document_bsky_post_ref_serializes_as_strong_ref() {
+        let d = doc();
+        let rec = document(
+            &d,
+            "at://did:plc:abc/site.standard.publication/self",
+            "",
+            None,
+            Some(StrongRef {
+                uri: "at://did:plc:abc/app.bsky.feed.post/3lwa".into(),
+                cid: "bafyreib2".into(),
+            }),
+        );
+        let v = serde_json::to_value(&rec).unwrap();
+        // A plain {uri, cid} object — strongRef has no $type.
+        assert_eq!(
+            v["bskyPostRef"],
+            json!({
+                "uri": "at://did:plc:abc/app.bsky.feed.post/3lwa",
+                "cid": "bafyreib2",
+            })
+        );
+    }
+
+    #[test]
     fn document_omits_content_when_no_markdown() {
         // Raw/Yaml docs carry no Markdown source, so the content union is omitted.
         let mut d = doc();
@@ -471,6 +525,7 @@ mod tests {
             &d,
             "at://did:plc:abc/site.standard.publication/self",
             "",
+            None,
             None,
         );
         let v = serde_json::to_value(&rec).unwrap();
@@ -485,6 +540,7 @@ mod tests {
             &d,
             "at://did:plc:abc/site.standard.publication/self",
             "",
+            None,
             None,
         );
         let v = serde_json::to_value(&rec).unwrap();

@@ -188,6 +188,47 @@ impl Client {
         })
     }
 
+    /// Create a record with a PDS-assigned TID rkey (`rkey: None`). Used for
+    /// `app.bsky.feed.post`, whose lexicon requires TID keys — posts are
+    /// create-once, and the returned uri/cid are persisted in
+    /// `.italic/bsky.yaml` (see [`crate::atproto::state`]).
+    pub async fn create_record(
+        &self,
+        collection: &str,
+        record: impl Serialize,
+    ) -> Result<WriteResult> {
+        let record = record
+            .try_into_unknown()
+            .map_err(|e| anyhow!("serializing record for {collection}: {e}"))?;
+        let input = atrium_api::com::atproto::repo::create_record::InputData {
+            collection: collection
+                .parse()
+                .map_err(|e| anyhow!("invalid collection NSID `{collection}`: {e}"))?,
+            record,
+            repo: self
+                .did
+                .parse()
+                .map_err(|e| anyhow!("invalid repo DID `{}`: {e}", self.did))?,
+            rkey: None,
+            swap_commit: None,
+            validate: None,
+        }
+        .into();
+        let out = self
+            .agent
+            .api
+            .com
+            .atproto
+            .repo
+            .create_record(input)
+            .await
+            .map_err(|e| anyhow!("createRecord {collection} failed: {e}"))?;
+        Ok(WriteResult {
+            uri: out.data.uri.clone(),
+            cid: out.data.cid.as_ref().to_string(),
+        })
+    }
+
     /// List every record in `collection` from the authenticated repo, following
     /// the pagination cursor to the end.
     ///

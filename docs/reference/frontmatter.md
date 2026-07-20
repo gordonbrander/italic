@@ -33,6 +33,7 @@ A few keys have special meaning and sensible defaults when absent:
 | `redirect_from` | array of strings | `[]` | Old URLs that should redirect here (see [Redirects](../guides/redirects.md)). |
 | `<taxonomy>` | array of strings | `[]` | One field per declared taxonomy, e.g. `tags: [intro, rust]`. |
 | `content` | string | `""` | `.yaml` files only: the body to render. |
+| `bsky` | string | none | Text for a Bluesky post announcing this doc, published by [`italic atproto publish`](../guides/publishing-atproto.md#bluesky-posts). ≤ 300 graphemes; requires `atproto.bsky.enabled`. |
 
 Dates parse as RFC 3339 (`2026-01-01T12:00:00Z`) or plain `YYYY-MM-DD`.
 Frontmatter dates win; the filesystem only fills in when the frontmatter value
@@ -87,6 +88,19 @@ literal file. See the [Redirects guide](../guides/redirects.md).
 frontmatter: the document's `coverImage` blob comes from the page's `image:`
 (then `site.image`) — the same fields the
 [metadata filters](../guides/metadata.md) use for social cards.
+
+The one opt-in key is `bsky:` — the text of a short Bluesky post announcing
+the doc, published alongside its document record when
+[`atproto.bsky.enabled`](config.md#atproto) is on:
+
+```yaml
+bsky: "New post: how I grow my digital garden 🌱"
+```
+
+Docs without a `bsky:` key never get a post — omitting the key is how you
+deliberately skip one. The text is capped at 300 graphemes (Bluesky's limit)
+and a post is **created once**: editing the text after the post exists does
+nothing. See [Bluesky posts](../guides/publishing-atproto.md#bluesky-posts).
 
 When the `ITALIC_ATPROTO_DID` env var is set, each document's standard.site
 AT-URI is derived at build time and exposed to templates as

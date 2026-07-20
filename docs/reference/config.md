@@ -242,6 +242,9 @@ atproto:
       foreground: "#eeeeee"
       accent: "#e94560"
       accent_foreground: "#ffffff"
+  bsky:
+    enabled: true                 # publish Bluesky announcement posts
+    since: 2026-01-01             # docs dated before this never get posts
 ```
 
 Top-level keys:
@@ -252,12 +255,19 @@ Top-level keys:
 | `collections` | list | `[all]` | Collections whose docs become `site.standard.document` records — the deduplicated union of their members. Each must be a declared collection. `[]` publishes only the publication record. |
 | `verification` | bool | `true` | Emit the static ownership proofs during `build` (the `.well-known` file and the per-doc `<link>` binding). Needs `ITALIC_ATPROTO_DID` and `site.url` — the derivation inputs. |
 | `publication` | mapping | — | Presentation for the `site.standard.publication` record. |
+| `bsky` | mapping | — | Bluesky announcement posts (see the [Publishing guide](../guides/publishing-atproto.md#bluesky-posts)). |
 
 `publication` keys: `icon` (a path uploaded as a blob) and `theme` (the
 [standard.site basic theme](https://standard.site/docs/lexicons/theme/),
 embedded on the publication record as `basicTheme`). When `theme:` is present,
 all four colors are required, each a `#rrggbb` hex string — quote them, since
 `#` starts a YAML comment.
+
+`bsky` keys: `enabled` (default `false`) turns on `app.bsky.feed.post`
+announcements for docs that opt in via [`bsky:` frontmatter](frontmatter.md);
+`since` (a `YYYY-MM-DD` date, default **3 days before now**) is a cutoff — docs
+dated before it never get posts, so a first publish over an old archive can't
+mass-post. Set `since` to an earlier date to announce older docs.
 
 Migrating from older configs: `collection:` (singular) became `collections:` (a
 list), and `publication.name`/`url`/`description` were removed in favor of the
