@@ -25,13 +25,25 @@ For a complete, sensible `<head>`, pipe `page` through `metadata`:
 The filters read the `site` context variable themselves, so there's nothing to
 pass in.
 
-That emits, in order: `<meta charset>`, viewport, the generator tag
+That emits, in order: the generator tag
 (`<meta name="generator" content="italic <version>">`), the description,
 keywords, `robots noindex` for [drafts](drafts.md), the canonical link, the
 standard.site proof link (for [published](publishing-atproto.md) pages), Open
 Graph tags, the Twitter card, JSON-LD, and a feed-discovery `<link>` for each
-configured [feed](archives.md). The umbrella deliberately does **not** emit
-`<title>` — the title is yours to write, as above.
+configured [feed](archives.md).
+
+The umbrella covers *generated* metadata only. Document-level tags your theme
+owns — `<title>`, `<meta charset>`, and the viewport — are yours to write, one
+static line each, as in the [base layout](../getting-started/tutorial.md#2-add-a-base-layout):
+
+```jinja
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }} · {{ site.title }}</title>
+  {{ page | metadata }}
+</head>
+```
 
 On non-article pages (a home or landing page), pass `type="website"`:
 

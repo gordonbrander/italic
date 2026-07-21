@@ -333,7 +333,7 @@ a given field is absent.
 
 | Filter | Pipe | Emits |
 |--------|------|-------|
-| `metadata` | `page` | The umbrella: charset, viewport, generator, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links. Everything except `<title>`, which you write yourself. |
+| `metadata` | `page` | The umbrella: generator, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links. Generated metadata only — `<title>`, `<meta charset>`, and viewport are the theme's to write. |
 | `system_meta` | `page` | Italic/system-controlled tags. Today the generator tag (`<meta name="generator" content="italic <version>">`); the home for future engine-owned `<head>` metadata. |
 | `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
 | `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |

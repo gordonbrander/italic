@@ -477,14 +477,12 @@ fn render_feed_links(site: &Value, cfg: &MetaCfg) -> String {
     join(links)
 }
 
-/// The umbrella: a complete, sensible `<head>` block in one call — everything
-/// except `<title>`, which themes write themselves for authorial control.
+/// The umbrella: every generated `<head>` tag in one call. Document-level tags
+/// a theme owns — `<title>`, `<meta charset>`, viewport — are deliberately left
+/// out; they're one static line each, and the theme should see and control them.
 /// Themes that want finer control compose the individual filters instead.
 fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> String {
-    let mut blocks: Vec<String> = vec![
-        "<meta charset=\"utf-8\">".to_string(),
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">".to_string(),
-    ];
+    let mut blocks: Vec<String> = Vec::new();
     blocks.extend(render_system_meta());
     blocks.extend(render_description(page, site));
     blocks.extend(render_keywords(page));
@@ -756,6 +754,14 @@ mod tests {
     #[test]
     fn metadata_umbrella_emits_no_title_tag() {
         assert!(!render("metadata", "page", "site=site").contains("<title>"));
+    }
+
+    /// Charset and viewport are theme concerns, not generated metadata.
+    #[test]
+    fn metadata_umbrella_emits_no_charset_or_viewport() {
+        let out = render("metadata", "page", "site=site");
+        assert!(!out.contains("charset"));
+        assert!(!out.contains("viewport"));
     }
 
     #[test]
