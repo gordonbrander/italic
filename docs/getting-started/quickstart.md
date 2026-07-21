@@ -32,15 +32,17 @@ every change.
 
 ## 4. Add a theme (optional)
 
-The default site is unstyled. Grab the starter themes and pick one:
+The default site is unstyled. Unpack a theme into `themes/` and point at it:
 
 ```sh
-git clone --depth 1 https://github.com/gordonbrander/italic_themes.git themes/
+mkdir -p themes
+curl -fsSL https://github.com/gordonbrander/italic_theme_jardin/releases/latest/download/jardin.tar.gz \
+  | tar xz -C themes/
 ```
 
 ```yaml
 # config.yaml
-theme: "themes/obsidian"
+theme: "themes/jardin"
 ```
 
 Optionally add the theme's demo content to see it dressed:
