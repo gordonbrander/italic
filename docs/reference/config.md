@@ -60,7 +60,7 @@ a `theme:` key inside a theme's own config is ignored. Full layering rules in
 the [Themes guide](../guides/themes.md).
 
 ```yaml
-theme: themes/obsidian
+theme: themes/jardin
 ```
 
 ## `hashtags`
