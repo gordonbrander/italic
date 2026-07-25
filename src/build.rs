@@ -34,6 +34,7 @@
 //! side, so there is no corpus-wide clone.
 
 pub mod archive;
+pub mod bsky_post;
 pub mod classify;
 pub mod content_assets;
 pub mod defaults;
@@ -87,6 +88,9 @@ pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocInd
     // `ITALIC_ATPROTO_DID` + `site.url` derivation inputs.
     let did = crate::atproto::client::env_did()?;
     standard_link::run(&config, did.as_deref(), &mut index)?;
+    // Announcement-post URIs from `.italic/bsky.yaml`; a no-op on sites that
+    // have never published a post.
+    bsky_post::run(&mut index)?;
     Ok((config, site_data, Arc::new(index)))
 }
 

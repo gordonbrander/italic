@@ -1,0 +1,7 @@
+# Bluesky posts created by `italic atproto publish`.
+version: 1
+posts:
+  posts/hello.md:
+    uri: at://did:plc:bskyfixture/app.bsky.feed.post/3lwabc22xyz
+    cid: bafyreibskyfixture
+    createdAt: 2026-07-20T18:04:11.000Z

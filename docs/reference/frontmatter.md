@@ -108,6 +108,11 @@ AT-URI is derived at build time and exposed to templates as
 emitting the verification `<link>` tag. See the
 [Publishing guide](../guides/publishing-atproto.md#verification-artifacts).
 
+Once a doc's announcement post exists (recorded in `.italic/bsky.yaml`), its
+AT-URI is likewise exposed as `page.data.bsky_uri`, so themes can link the
+post or render its replies as comments. See
+[Replies as comments](../guides/publishing-atproto.md#replies-as-comments).
+
 ## Setting defaults per collection
 
 Rather than repeating frontmatter on every file, set collection-wide defaults
