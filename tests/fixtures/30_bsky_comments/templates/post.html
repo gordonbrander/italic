@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+<head>
+<title>{{ page.title }} · {{ site.title }}</title>
+</head>
+<body>
+{{ page.content | safe }}
+{% if page.data.bsky_uri %}<jardin-comments uri="{{ page.data.bsky_uri }}"></jardin-comments>{% endif %}
+</body>
+</html>

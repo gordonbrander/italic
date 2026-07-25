@@ -356,6 +356,14 @@ fn block_references() {
     run_build("29_block_references");
 }
 
+/// `.italic/bsky.yaml` → `page.data.bsky_uri`: announced docs get their
+/// post's AT-URI injected; unannounced docs don't, so the template guard
+/// emits nothing for them.
+#[test]
+fn bsky_comments() {
+    run_build("30_bsky_comments");
+}
+
 #[test]
 fn scaffold() {
     // The 12_scaffold fixture has no input files — just an `expected/` dir.

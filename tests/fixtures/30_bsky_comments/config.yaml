@@ -1,0 +1,6 @@
+site:
+  title: Bsky Comments Demo
+
+# Keep the fixture focused on the bsky_uri injection: no sitemap, no feeds.
+sitemap:
+feed: []

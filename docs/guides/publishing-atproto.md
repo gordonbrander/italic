@@ -219,6 +219,23 @@ doc, move its entry to the new id_path, or the renamed doc will look new and
 get a second post. `italic atproto status` reports docs whose post is still
 pending (`POST PENDING`) and state entries whose doc has gone away (`STALE`).
 
+### Replies as comments
+
+During `build`, each announced doc's post AT-URI is exposed to templates as
+`page.data.bsky_uri`, so a theme can link the announcement — or fetch its
+replies and render them as comments:
+
+```html
+{% if page.data.bsky_uri %}
+<jardin-comments uri="{{ page.data.bsky_uri }}"></jardin-comments>
+{% endif %}
+```
+
+Docs without a recorded post simply lack the key. A post created outside
+italic can be wired up by setting `bsky_uri:` in that doc's frontmatter by
+hand. Note that `italic serve` does not watch `.italic/`, so a freshly
+published post appears in templates on the next restart or build.
+
 ### Guard rails
 
 Two guards prevent accidentally blasting posts:
