@@ -211,6 +211,7 @@ const TEMPLATE_ONLY_FILTERS: &[&str] = &[
     "meta_keywords",
     "canonical_link",
     "standard_link",
+    "at_meta",
     "open_graph",
     "twitter_card",
     "json_ld",

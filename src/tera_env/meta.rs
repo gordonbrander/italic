@@ -24,6 +24,7 @@
 //! {{ page | meta_keywords }}
 //! {{ page | canonical_link }}
 //! {{ page | standard_link }}
+//! {{ page | at_meta }}
 //! {{ page | open_graph(type="article") }}
 //! {{ page | twitter_card }}
 //! {{ page | json_ld }}
@@ -97,6 +98,14 @@ pub fn register(
     env.register_filter(
         "standard_link",
         |page: &Value, _: Kwargs, _: &State| -> Value { safe(join(render_standard_link(page))) },
+    );
+
+    env.register_filter(
+        "at_meta",
+        |page: &Value, _: Kwargs, state: &State| -> TeraResult<Value> {
+            let site = site_from(state)?;
+            Ok(safe(join(render_at_meta(page, &site))))
+        },
     );
 
     let c = cfg.clone();
@@ -183,6 +192,33 @@ fn field<'a>(v: &'a Value, key: &'a str) -> Option<&'a str> {
 /// A trimmed, non-empty `page.data.<key>` string field.
 fn data_field<'a>(page: &'a Value, key: &'a str) -> Option<&'a str> {
     page.get_from_path("data").and_then(|d| field(d, key))
+}
+
+/// A string-or-list field at `path`, flattened to its trimmed, non-empty
+/// entries. The AT-tags proposal gives every property array semantics — one
+/// `<meta>` per value — so a scalar is just a one-element list. Mirrors the
+/// string/array handling in [`keywords`].
+fn str_list<'a>(v: &'a Value, path: &'a str) -> Vec<&'a str> {
+    let Some(val) = v.get_from_path(path) else {
+        return Vec::new();
+    };
+    let items: Vec<&str> = match (val.as_str(), val.as_array()) {
+        (Some(s), _) => vec![s],
+        (None, Some(items)) => items.iter().filter_map(Value::as_str).collect(),
+        _ => return Vec::new(),
+    };
+    items
+        .into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// A bare DID as the AT URI the AT-tags proposal requires for `at:author` /
+/// `at:me` (`at://did:plc:…`), tolerating a value already written with the
+/// scheme.
+fn at_uri(did: &str) -> String {
+    format!("at://{}", did.trim_start_matches("at://"))
 }
 
 /// Page title, falling back to the site title.
@@ -342,6 +378,62 @@ fn render_standard_link(page: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The DIDs that authored this page: `page.data.author_did`, else
+/// `site.author_did`, else the site's own account DID — a personal site's pages
+/// are authored by its owner, so that fallback is right by default and a
+/// multi-author page overrides it in frontmatter.
+fn author_dids<'a>(page: &'a Value, site: &'a Value) -> Vec<&'a str> {
+    let page_dids = str_list(page, "data.author_did");
+    if !page_dids.is_empty() {
+        return page_dids;
+    }
+    let site_dids = str_list(site, "author_did");
+    if !site_dids.is_empty() {
+        return site_dids;
+    }
+    str_list(site, "atproto_did")
+}
+
+/// AT-tags metadata: the `at:` `<meta>` namespace from
+/// <https://tangled.org/chrisshank.com/at-tags/>, declaring which atproto
+/// records and identities this page corresponds to. The standard properties
+/// come first, custom (`at:{namespace}:{property}`) ones last; each property has
+/// array semantics, so a repeated name is a list.
+///
+/// | Tag | Source |
+/// |---|---|
+/// | `at:canonical` | `page.data.atproto_uri` — the `site.standard.document` record |
+/// | `at:alternate` | `site.atproto_publication_uri` — the `site.standard.publication` record |
+/// | `at:author` | [`author_dids`] |
+/// | `at:me` | `site.atproto_did` |
+/// | `at:blog:comments` | `page.data.bsky_uri` — the announcement post that carries the comments |
+///
+/// Every value is already an absolute AT URI (or a bare DID wrapped by
+/// [`at_uri`]); none may go through [`abs_url`], which would mangle the `at://`
+/// scheme. Missing sources simply omit their tag — the same graceful degradation
+/// as every other filter here. The `at:` tags exist because AT URIs are not
+/// valid in a `<link href>`; [`render_standard_link`] still emits the original
+/// standard.site proof link alongside them.
+fn render_at_meta(page: &Value, site: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for uri in str_list(page, "data.atproto_uri") {
+        out.push(meta_name("at:canonical", uri));
+    }
+    for uri in str_list(site, "atproto_publication_uri") {
+        out.push(meta_name("at:alternate", uri));
+    }
+    for did in author_dids(page, site) {
+        out.push(meta_name("at:author", &at_uri(did)));
+    }
+    for did in str_list(site, "atproto_did") {
+        out.push(meta_name("at:me", &at_uri(did)));
+    }
+    for uri in str_list(page, "data.bsky_uri") {
+        out.push(meta_name("at:blog:comments", uri));
+    }
+    out
+}
+
 fn render_open_graph(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> Vec<String> {
     let mut out = vec![meta_prop("og:type", og_type)];
     if let Some(t) = title(page, site) {
@@ -493,6 +585,7 @@ fn render_metadata(page: &Value, site: &Value, og_type: &str, cfg: &MetaCfg) -> 
     }
     blocks.extend(render_canonical(page, cfg));
     blocks.extend(render_standard_link(page));
+    blocks.extend(render_at_meta(page, site));
     blocks.extend(render_open_graph(page, site, og_type, cfg));
     blocks.extend(render_twitter_card(page, site, cfg));
     let json_ld = render_json_ld(page, site, og_type, cfg);
@@ -730,6 +823,113 @@ mod tests {
         assert!(canonical < standard);
         // A page without the AT-URI emits no proof link.
         assert!(!render("metadata", "page", "site=site").contains("site.standard.document"));
+    }
+
+    /// Render `expr` against explicit `page`/`site` values, where the shared
+    /// [`render`] helper pins the default fixtures.
+    fn render_with(page: &Json, site: &Json, expr: &str) -> String {
+        let mut tera = Tera::default();
+        register(&mut tera, cfg().site_url, cfg().base_path, cfg().feed_names);
+        let mut ctx = tera::Context::new();
+        ctx.insert("page", page);
+        ctx.insert("site", site);
+        tera.render_str(expr, &ctx, false).unwrap()
+    }
+
+    /// A site carrying the identity `build::atproto_site` injects.
+    fn site_with_atproto() -> Json {
+        let mut s = site();
+        s["atproto_did"] = json!("did:plc:abc");
+        s["atproto_publication_uri"] = json!("at://did:plc:abc/site.standard.publication/pub1");
+        s
+    }
+
+    #[test]
+    fn at_meta_emits_standard_properties_in_order() {
+        // Exact output: the `at://` slashes must survive unescaped, and the
+        // author defaults to the site's own DID.
+        assert_eq!(
+            render_with(
+                &page_with_atproto_uri(),
+                &site_with_atproto(),
+                "{{ page | at_meta }}"
+            ),
+            concat!(
+                r#"<meta name="at:canonical" content="at://did:plc:abc/site.standard.document/xyz">"#,
+                "\n",
+                r#"<meta name="at:alternate" content="at://did:plc:abc/site.standard.publication/pub1">"#,
+                "\n",
+                r#"<meta name="at:author" content="at://did:plc:abc">"#,
+                "\n",
+                r#"<meta name="at:me" content="at://did:plc:abc">"#,
+            )
+        );
+    }
+
+    #[test]
+    fn at_meta_empty_without_atproto_data() {
+        assert_eq!(render("at_meta", "page", ""), "");
+    }
+
+    #[test]
+    fn at_meta_author_did_overrides_the_site_identity() {
+        let mut p = page_with_atproto_uri();
+        p["data"]["author_did"] = json!(["did:plc:ada", "did:plc:grace"]);
+        let out = render_with(&p, &site_with_atproto(), "{{ page | at_meta }}");
+        // One tag per entry (array semantics), and no fallback to the site DID.
+        assert!(out.contains(r#"<meta name="at:author" content="at://did:plc:ada">"#));
+        assert!(out.contains(r#"<meta name="at:author" content="at://did:plc:grace">"#));
+        assert!(!out.contains(r#"<meta name="at:author" content="at://did:plc:abc">"#));
+        // `at:me` still names the site itself.
+        assert!(out.contains(r#"<meta name="at:me" content="at://did:plc:abc">"#));
+    }
+
+    #[test]
+    fn at_meta_author_did_accepts_a_string_and_the_at_scheme() {
+        let mut p = page_with_atproto_uri();
+        // Already scheme-prefixed: must not become `at://at://…`.
+        p["data"]["author_did"] = json!("at://did:plc:ada");
+        let out = render_with(&p, &site_with_atproto(), "{{ page | at_meta }}");
+        assert!(out.contains(r#"<meta name="at:author" content="at://did:plc:ada">"#));
+    }
+
+    #[test]
+    fn at_meta_site_author_did_precedes_the_site_identity() {
+        let mut s = site_with_atproto();
+        s["author_did"] = json!("did:plc:editor");
+        let out = render_with(&page_with_atproto_uri(), &s, "{{ page | at_meta }}");
+        assert!(out.contains(r#"<meta name="at:author" content="at://did:plc:editor">"#));
+        assert!(!out.contains(r#"<meta name="at:author" content="at://did:plc:abc">"#));
+    }
+
+    #[test]
+    fn at_meta_tags_the_bsky_post_as_blog_comments() {
+        let mut p = page_with_atproto_uri();
+        p["data"]["bsky_uri"] = json!("at://did:plc:abc/app.bsky.feed.post/3lw1");
+        let out = render_with(&p, &site_with_atproto(), "{{ page | at_meta }}");
+        assert!(out.contains(
+            r#"<meta name="at:blog:comments" content="at://did:plc:abc/app.bsky.feed.post/3lw1">"#
+        ));
+        // The custom property comes last, after every standard one.
+        assert!(out.find("at:me").unwrap() < out.find("at:blog:comments").unwrap());
+    }
+
+    #[test]
+    fn metadata_umbrella_includes_at_meta_after_standard_link() {
+        let out = render_with(
+            &page_with_atproto_uri(),
+            &site_with_atproto(),
+            "{{ page | metadata }}",
+        );
+        let standard = out
+            .find(r#"rel="site.standard.document""#)
+            .expect("standard.site link");
+        let at_canonical = out.find(r#"name="at:canonical""#).expect("at:canonical");
+        let og = out.find(r#"property="og:type""#).expect("og:type");
+        assert!(standard < at_canonical);
+        assert!(at_canonical < og);
+        // A site/page without any atproto data emits no `at:` tags at all.
+        assert!(!render("metadata", "page", "").contains("at:"));
     }
 
     /// Version-agnostic: assert against `env!`, never a hardcoded number.

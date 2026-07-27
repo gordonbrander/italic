@@ -34,6 +34,7 @@
 //! side, so there is no corpus-wide clone.
 
 pub mod archive;
+pub mod atproto_site;
 pub mod bsky_post;
 pub mod classify;
 pub mod content_assets;
@@ -71,7 +72,11 @@ pub struct Output {
 /// writing HTML). Stops before archives/templates/write — see [`run`].
 pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocIndex>)> {
     let (config, site) = Config::load_with_theme(Path::new("config.yaml"))?;
-    let site_data = SiteData::load(&config, site)?;
+    let mut site_data = SiteData::load(&config, site)?;
+    // Site-level atproto identity (`site.atproto_did`, `site.atproto_publication_uri`)
+    // before anything renders, so markup and templates alike can read it.
+    let did = crate::atproto::client::env_did()?;
+    atproto_site::run(&config, did.as_deref(), &mut site_data.site)?;
     let mut index = read::run(&config, include_drafts)?;
     // Collections classify from frontmatter (pre-markup).
     classify::collections(&config, &mut index);
@@ -86,7 +91,6 @@ pub fn build_index(include_drafts: bool) -> Result<(Config, SiteData, Arc<DocInd
     // Derive published docs' AT-URIs (for the standard.site `<link>` proof) before
     // the index freezes. Gated on `atproto.verification`; a no-op without the
     // `ITALIC_ATPROTO_DID` + `site.url` derivation inputs.
-    let did = crate::atproto::client::env_did()?;
     standard_link::run(&config, did.as_deref(), &mut index)?;
     // Announcement-post URIs from `.italic/bsky.yaml`; a no-op on sites that
     // have never published a post.

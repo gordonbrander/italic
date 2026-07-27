@@ -273,6 +273,14 @@ With `ITALIC_ATPROTO_DID` and `site.url` set, every build — including CI build
    `{{ page | standard_link }}` yourself. Hand-rolled heads can still read the
    raw AT-URI from `page.data.atproto_uri`.
 
+3. **[AT tags](metadata.md#at-tags)** — the `<meta name="at:*">` tags from the
+   [AT tags proposal](https://tangled.org/chrisshank.com/at-tags/), which
+   generalise the standard.site proof link so any lexicon can be referenced.
+   `{{ page | metadata }}` emits them alongside the `<link>` above, or compose
+   `{{ page | at_meta }}` yourself. The same build also puts your DID and your
+   publication's AT-URI on the site context as `site.atproto_did` and
+   `site.atproto_publication_uri`, for hand-rolled heads.
+
 Because `italic atproto publish` derives record addresses the same way — and
 authenticates *as* that same DID — build and deploy order doesn't matter: HTML
 deployed before a publish already carries the right URIs, and verification
