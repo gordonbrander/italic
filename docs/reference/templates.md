@@ -333,12 +333,13 @@ a given field is absent.
 
 | Filter | Pipe | Emits |
 |--------|------|-------|
-| `metadata` | `page` | The umbrella: generator, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, Open Graph, Twitter card, JSON-LD, and feed links. Generated metadata only — `<title>`, `<meta charset>`, and viewport are the theme's to write. |
+| `metadata` | `page` | The umbrella: generator, description, keywords, `robots noindex` for drafts, canonical, the standard.site proof link, AT tags, Open Graph, Twitter card, JSON-LD, and feed links. Generated metadata only — `<title>`, `<meta charset>`, and viewport are the theme's to write. |
 | `system_meta` | `page` | Italic/system-controlled tags. Today the generator tag (`<meta name="generator" content="italic <version>">`); the home for future engine-owned `<head>` metadata. |
 | `meta_description` | `page` | `<meta name="description">` (`page.summary`, else `site.description`). |
 | `meta_keywords` | `page` | `<meta name="keywords">` from `tags`, else `page.data.keywords`. |
 | `canonical_link` | `page` | `<link rel="canonical">`. |
 | `standard_link` | `page` | `<link rel="site.standard.document">` from `page.data.atproto_uri` — the standard.site per-page proof; empty unless [`ITALIC_ATPROTO_DID`](../guides/publishing-atproto.md#verification-artifacts) is set. |
+| `at_meta` | `page` | [AT tags](../guides/metadata.md#at-tags) — `at:canonical`, `at:alternate`, `at:author`, `at:me`, `at:blog:comments`. Each is omitted when its source is absent. |
 | `open_graph` | `page` | `og:*` (and `article:*` when `type="article"`, the default). |
 | `twitter_card` | `page` | `twitter:*` (`summary_large_image` when an image exists). |
 | `json_ld` | `page` | `<script type="application/ld+json">` (`BlogPosting`, or `WebSite` for `type="website"`). |
@@ -359,7 +360,9 @@ no kwarg needed (a legacy `site=site` kwarg is accepted and ignored).
 Conventions: social image from `page.data.image` (alt `page.data.image_alt`),
 falling back to `site.image`; Twitter handle from `site.twitter`; locale from
 `site.locale` (default `en_US`); author from `page.data.author`, else
-`site.author`. See the [Metadata guide](../guides/metadata.md).
+`site.author`; atproto author DIDs from `page.data.author_did`, else
+`site.author_did`, else the site's own `site.atproto_did`. See the
+[Metadata guide](../guides/metadata.md).
 
 ## Components
 

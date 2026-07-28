@@ -2,6 +2,7 @@
 <html>
 <head>
 <title>{{ page.title }} · {{ site.title }}</title>
+{{ page | at_meta }}
 </head>
 <body>
 {{ page.content | safe }}
