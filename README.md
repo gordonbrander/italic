@@ -77,12 +77,14 @@ Congrats! You have a website at <http://localhost:3000>.
 To dress it up, grab a starter theme:
 
 ```sh
-git clone --depth 1 https://github.com/gordonbrander/italic_themes.git themes/
+mkdir -p themes
+curl -fsSL https://github.com/gordonbrander/italic_theme_jardin/releases/latest/download/jardin.tar.gz \
+  | tar xz -C themes/
 ```
 
 ```yaml
 # config.yaml
-theme: "themes/obsidian"
+theme: "themes/jardin"
 ```
 
 Then `italic build` outputs plain static files to `public/`, ready for any

@@ -3,19 +3,23 @@
 A theme bundles templates, archives, static assets, and config defaults in a
 folder, so a whole look-and-feel can be shared and reused.
 
-## Using a theme
+## Installing a theme
 
-Point at a theme directory with the top-level `theme:` key:
+Themes are published as release tarballs. Each one unpacks into its own
+directory, so you can keep several side by side:
+
+```sh
+mkdir -p themes
+curl -fsSL https://github.com/gordonbrander/italic_theme_jardin/releases/latest/download/jardin.tar.gz \
+  | tar xz -C themes/
+```
+
+That lands a complete theme at `themes/jardin/`. Point at it with the top-level
+`theme:` key:
 
 ```yaml
 # config.yaml
-theme: themes/obsidian
-```
-
-Get starter themes by cloning the themes repo into your site:
-
-```sh
-git clone --depth 1 https://github.com/gordonbrander/italic_themes.git themes/
+theme: themes/jardin
 ```
 
 Then, optionally, copy the theme's starter content into your `content/`
@@ -24,6 +28,19 @@ directory (existing files are skipped):
 ```sh
 italic scaffold
 ```
+
+**Pin a version** by swapping `latest/download` for a specific tag:
+
+```sh
+curl -fsSL https://github.com/gordonbrander/italic_theme_jardin/releases/download/v0.1.0/jardin.tar.gz \
+  | tar xz -C themes/
+```
+
+**Update** by re-running the command — it overwrites `themes/<name>/` in place.
+Because a theme is only ever a base layer, the safe place for your own changes
+is your site's `templates/` and `static/`, which override the theme's and
+survive the overwrite untouched. Commit `themes/` to your site's repo and the
+diff will show you exactly what an update changed.
 
 ## How a theme layers
 
