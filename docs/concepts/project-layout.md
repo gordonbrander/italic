@@ -11,7 +11,7 @@ data/           # YAML files surfaced to templates as {{ data.* }}
 static/         # Copied verbatim into the output
 themes/         # Conventional home for themes referenced via theme: in config.yaml
 config.yaml     # Site config (optional)
-public/         # Build output (created by italic build; removed by italic clean)
+public/         # Build output (created by italic build; emptied by italic clean)
 ```
 
 Every directory name except `themes/` is configurable via the `*_dir` keys in

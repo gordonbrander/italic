@@ -1,7 +1,8 @@
 use crate::query::Query;
 use crate::related::{LINKS, Related};
 use crate::taxonomy;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+use globset::{Glob, GlobBuilder};
 use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
 use std::fs;
@@ -62,6 +63,24 @@ impl Feed {
 pub struct Config {
     pub content_dir: PathBuf,
     pub output_dir: PathBuf,
+    /// Globs for paths under `output_dir` that [`crate::command::clean`] must not
+    /// delete, from the top-level `keep_files:` key. Each entry is matched against
+    /// an entry's path *relative to* `output_dir`, with `literal_separator(true)`
+    /// as in [`Query`] — so `*` never crosses `/` and `.git` means the top-level
+    /// one only (`**/.git` for nested). A directory that matches is kept whole and
+    /// never descended into.
+    ///
+    /// Defaults to `[".git"]` so cleaning an output dir that is a git worktree or
+    /// clone does not destroy its repo metadata — the literal name is enough, since
+    /// worktrees and clones are always exactly `.git` (only bare repos use the
+    /// `foo.git` convention, and one of those would never live in an output dir).
+    ///
+    /// A site that sets the key **replaces** the default rather than adding to it,
+    /// so `keep_files: ["CNAME"]` leaves `.git` unprotected; an explicit
+    /// `keep_files: []` cleans everything. Site-only, like `content`/`output`/`data`:
+    /// a theme's `keep_files` is ignored.
+    #[serde(skip)]
+    pub keep_files: Vec<Glob>,
     pub templates_dir: PathBuf,
     pub static_dir: PathBuf,
     pub data_dir: PathBuf,
@@ -152,6 +171,7 @@ impl Default for Config {
         Self {
             content_dir: PathBuf::from("content"),
             output_dir: PathBuf::from("public"),
+            keep_files: default_keep_files(),
             templates_dir: PathBuf::from("templates"),
             static_dir: PathBuf::from("static"),
             data_dir: PathBuf::from("data"),
@@ -268,6 +288,7 @@ impl Config {
             related_map,
             sitemap_v,
             feed_v,
+            keep_files_v,
             atproto_map,
         ) = match raw {
             Value::Mapping(mut m) => {
@@ -301,6 +322,12 @@ impl Config {
                 let feed = m
                     .contains_key(Value::String("feed".into()))
                     .then(|| m.remove(Value::String("feed".into())).unwrap());
+                // Same absent-vs-null distinction: an absent `keep_files:` falls
+                // back to `default_keep_files()`, while an explicit `keep_files: []`
+                // really does mean "keep nothing".
+                let keep_files = m
+                    .contains_key(Value::String("keep_files".into()))
+                    .then(|| m.remove(Value::String("keep_files".into())).unwrap());
                 let atproto = match m.remove(Value::String("atproto".into())) {
                     Some(Value::Mapping(p)) => Some(p),
                     _ => None,
@@ -313,10 +340,21 @@ impl Config {
                     related,
                     sitemap,
                     feed,
+                    keep_files,
                     atproto,
                 )
             }
-            _ => (Mapping::new(), None, None, None, None, None, None, None),
+            _ => (
+                Mapping::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
         };
         if let Some(map) = collections_map {
             config.collections = parse_collections(&map)
@@ -341,6 +379,15 @@ impl Config {
             config.feed = parse_feed(&value)
                 .with_context(|| format!("parsing `feed` in {}", path.display()))?;
         }
+        // Assigned unconditionally, unlike the fields above: `#[serde(skip)]` left
+        // `keep_files` an empty `Vec` (the field type's `Default`, not the one
+        // `Config::default` supplies), and an empty keep set would have `clean`
+        // delete the `.git` this field exists to protect.
+        config.keep_files = match keep_files_v {
+            Some(value) => parse_keep_files(&value)
+                .with_context(|| format!("parsing `keep_files` in {}", path.display()))?,
+            None => default_keep_files(),
+        };
         if let Some(map) = atproto_map {
             config.atproto = crate::atproto::config::parse_atproto(&map)
                 .with_context(|| format!("parsing `atproto` in {}", path.display()))?;
@@ -354,7 +401,8 @@ impl Config {
     /// `self.theme`); collections/defaults merge by name and taxonomies by value
     /// with the site winning; the `site:` map is deep-merged with the site
     /// winning. The site's own `*_dir` paths are left untouched, as are
-    /// `content`/`output`/`data`.
+    /// `content`/`output`/`data` and `keep_files` — what a site keeps when cleaning
+    /// its output dir is a deploy concern, not something a theme has any say in.
     fn apply_theme(&mut self, site: &mut Mapping, theme: Config, theme_site: Mapping) {
         // Templates, archives, and static overlay beneath the site via the
         // `*_roots` helpers, which derive the theme's conventional
@@ -662,6 +710,47 @@ fn parse_feed(value: &Value) -> Result<Feed> {
     }
 }
 
+/// The default `keep_files` set: just `.git`, so `clean` never destroys the repo
+/// metadata of an output dir that is a git worktree or clone. Shared by
+/// [`Config::default`] and [`Config::load`] so the two cannot disagree about what
+/// an absent `keep_files:` key means — `#[serde(skip)]` fills the field with an
+/// empty `Vec`, not the `Default` impl's value, so `load` must assign it back.
+fn default_keep_files() -> Vec<Glob> {
+    vec![compile_keep_glob(".git").expect("`.git` is a valid glob")]
+}
+
+/// Compile one `keep_files` pattern. `literal_separator(true)` matches
+/// [`Query::from_yaml_mapping`], so `*` never crosses `/` and the two report
+/// invalid globs identically.
+fn compile_keep_glob(pattern: &str) -> Result<Glob> {
+    GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .map_err(|e| anyhow!("keep_files: invalid glob `{}`: {}", pattern, e))
+}
+
+/// Parse the `keep_files:` value: a sequence of glob strings. An empty list keeps
+/// nothing (clean everything). A null is treated as empty, mirroring `feed:`. Any
+/// non-sequence (e.g. a bare string) is a loud error — keep_files is always a list.
+fn parse_keep_files(value: &Value) -> Result<Vec<Glob>> {
+    match value {
+        Value::Null => Ok(Vec::new()),
+        Value::Sequence(seq) => {
+            let mut globs = Vec::with_capacity(seq.len());
+            for item in seq {
+                let pattern = item.as_str().ok_or_else(|| {
+                    anyhow!("keep_files: every entry must be a glob pattern (string)")
+                })?;
+                globs.push(compile_keep_glob(pattern)?);
+            }
+            Ok(globs)
+        }
+        _ => Err(anyhow!(
+            "keep_files: must be a list of glob patterns (use `[]` to keep nothing)"
+        )),
+    }
+}
+
 /// Ensure every collection named by `sitemap`/`feed` is declared. Run after the
 /// theme merge and default resolution, like [`validate_defaults`]. `all` is always
 /// present, so the defaults validate trivially.
@@ -771,6 +860,88 @@ mod tests {
         assert_eq!(config.output_dir, PathBuf::from("build"));
         assert_eq!(config.content_dir, PathBuf::from("content"));
         assert!(site.is_empty());
+        cleanup(&dir);
+    }
+
+    /// The `keep_files` globs as their source patterns, for readable assertions.
+    fn keep_patterns(config: &Config) -> Vec<&str> {
+        config.keep_files.iter().map(Glob::glob).collect()
+    }
+
+    #[test]
+    fn keep_files_defaults_to_dot_git_when_absent() {
+        // Guards the `#[serde(skip)]` trap: serde fills the field with an empty
+        // `Vec` (the field type's `Default`), not `Config::default`'s value, so
+        // `load` has to assign the default back. An empty keep set here would mean
+        // `clean` deletes the `.git` this field exists to protect.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "output_dir: build\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(keep_patterns(&config), vec![".git"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn keep_files_defaults_apply_to_a_missing_config_file() {
+        let path = Path::new("/definitely/does/not/exist/config.yaml");
+        let (config, _) = Config::load_with_theme(path).unwrap();
+        assert_eq!(keep_patterns(&config), vec![".git"]);
+    }
+
+    #[test]
+    fn keep_files_explicit_empty_list_keeps_nothing() {
+        // An explicit `[]` must survive as empty rather than being overwritten by
+        // the default — that is how a site asks for the old clean-everything
+        // behavior.
+        let dir = tempdir("config");
+        let path = write_config(&dir, "keep_files: []\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert!(config.keep_files.is_empty());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn keep_files_replaces_rather_than_merges_with_the_default() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "keep_files:\n  - CNAME\n  - \"media/**\"\n");
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(keep_patterns(&config), vec!["CNAME", "media/**"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn keep_files_rejects_an_invalid_glob() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "keep_files:\n  - \"[bad\"\n");
+        let err = Config::load_with_theme(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("keep_files"),
+            "error should name the key: {err}"
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn keep_files_rejects_a_non_list() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "keep_files: .git\n");
+        let err = Config::load_with_theme(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("keep_files"),
+            "error should name the key: {err}"
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn keep_files_rejects_a_non_string_entry() {
+        let dir = tempdir("config");
+        let path = write_config(&dir, "keep_files:\n  - 42\n");
+        let err = Config::load_with_theme(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("keep_files"),
+            "error should name the key: {err}"
+        );
         cleanup(&dir);
     }
 
@@ -1125,6 +1296,19 @@ mod tests {
         assert_eq!(config.content_dir, PathBuf::from("content"));
         assert_eq!(config.output_dir, PathBuf::from("public"));
         assert_eq!(config.data_dir, PathBuf::from("data"));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn theme_keep_files_do_not_reach_the_site() {
+        // What a site keeps when cleaning its output dir is a deploy concern, so
+        // `keep_files` is site-only like content/output/data.
+        let dir = tempdir("config");
+        let theme = dir.join("themes/demo");
+        write_config_in(&theme, "keep_files:\n  - \"theme-only/**\"\n");
+        let path = write_config(&dir, &format!("theme: {}\n", theme.display()));
+        let (config, _) = Config::load_with_theme(&path).unwrap();
+        assert_eq!(keep_patterns(&config), vec![".git"]);
         cleanup(&dir);
     }
 
