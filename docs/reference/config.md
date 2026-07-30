@@ -15,6 +15,10 @@ static_dir: static
 data_dir: data
 archives_dir: archives
 
+# Globs under output_dir that `italic clean` must not delete.
+keep_files:
+  - .git
+
 # Optional theme; no default.
 # theme: themes/my-theme
 
@@ -38,13 +42,48 @@ feed:             # one /feed/<name>.xml per collection; `[]` to disable
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `content_dir` | path | `content` | Source content (`.md`, `.html`, `.yaml`). |
-| `output_dir` | path | `public` | Build output. Removed by `italic clean`. |
+| `output_dir` | path | `public` | Build output. Emptied by `italic clean` (see [`keep_files`](#keep_files)). |
 | `templates_dir` | path | `templates` | Tera layouts, partials, and components. |
 | `static_dir` | path | `static` | Copied verbatim into the output. |
 | `data_dir` | path | `data` | YAML files surfaced as `{{ data.* }}`. |
 | `archives_dir` | path | `archives` | Archive templates (see [Archives](../guides/archives.md)). |
 
 All paths are relative to the working directory.
+
+## `keep_files`
+
+| Type | Default |
+|------|---------|
+| list of globs | `[".git"]` |
+
+Paths under `output_dir` that [`italic clean`](cli.md#italic-clean) must not
+delete. `clean` empties the output directory rather than removing it, so the
+directory itself always survives.
+
+```yaml
+keep_files:
+  - .git
+  - CNAME
+  - "media/**"
+```
+
+Each pattern is matched against an entry's path **relative to `output_dir`**,
+using the same glob semantics as a collection's `path` — `*` never crosses `/`,
+so `.git` means the top-level one only. Use `**/.git` to match at any depth. A
+**directory that matches is kept whole** and never descended into, which is why
+the bare `.git` entry preserves an entire repository.
+
+The default exists so that cleaning an output directory that is a git worktree or
+clone does not destroy its repo metadata. See
+[Deployment](../guides/deployment.md#deploy-branch-as-a-git-worktree).
+
+> **Setting `keep_files` replaces the default — it does not add to it.** Writing
+> `keep_files: ["CNAME"]` leaves `.git` unprotected. Include `.git` yourself
+> whenever you override the key. An explicit `keep_files: []` keeps nothing, which
+> is how you ask for a total wipe.
+
+`keep_files` is site-only: a theme's `keep_files` is ignored, since what a site
+preserves when cleaning its output is a deploy concern rather than a theming one.
 
 ## `theme`
 

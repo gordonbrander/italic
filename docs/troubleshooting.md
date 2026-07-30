@@ -85,6 +85,11 @@ dated permalinks), set `date:` in frontmatter or via collection defaults.
 deleted pages can leave orphans. Run `italic clean && italic build` for a
 fresh tree (and use `rsync --delete` or equivalent when deploying).
 
+`clean` empties `output_dir` rather than removing it, preserving anything matched
+by [`keep_files`](reference/config.md#keep_files) — `.git` by default, so this is
+safe to run when the output directory is a
+[git worktree](guides/deployment.md#deploy-branch-as-a-git-worktree).
+
 ## Still stuck?
 
 Open an issue at <https://github.com/gordonbrander/italic/issues> with the

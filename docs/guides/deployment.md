@@ -77,6 +77,55 @@ In the Pages project settings:
 Or skip remote builds entirely: build locally or in CI and push with
 `wrangler pages deploy public`.
 
+## Deploy branch as a git worktree
+
+Many hosts — GitHub Pages in "deploy from branch" mode, DigitalOcean App Platform,
+Cloudflare Pages — will serve a branch of built output directly. A git worktree
+lets you keep that branch checked out *at* `public/`, so `italic build` writes
+straight into it and publishing needs no CI.
+
+One-time setup, from your source repo:
+
+```sh
+git worktree add public deploy      # or: git worktree add -b deploy public
+```
+
+`public/` is now a checkout of the `deploy` branch sharing the same `.git` store —
+no second clone, no extra remote. Then a deploy is:
+
+```sh
+#!/bin/sh
+set -eu
+italic clean
+italic build
+cd public
+git add -A
+git commit -m "Deploy $(git -C .. rev-parse --short HEAD)" || { echo "no changes"; exit 0; }
+git push
+```
+
+The `clean` step matters: `italic build` writes over the top and never removes, so
+without it a deleted page's HTML lingers in `public/` and git keeps publishing it.
+`clean` preserves the worktree's `.git` and leaves the directory in place — that is
+what [`keep_files`](../reference/config.md#keep_files) defaults to — so the worktree
+stays registered across the cycle.
+
+Keep `public/` out of the source branch so `main` stays clean:
+
+```
+# .gitignore on main
+/public
+```
+
+**Put non-generated deploy files in `static/`.** Because `clean` removes everything
+`keep_files` doesn't match, a `CNAME`, `.nojekyll`, or `robots.txt` living only on
+the deploy branch would be deleted and then dropped from the branch by the next
+commit. Files in `static/` are copied into the output on every build, dotfiles
+included, so they reproduce themselves. That is also the better home for them:
+deploy config ends up version-controlled on `main` instead of stranded on a branch
+nothing reproduces. Naming them in `keep_files` works too, but then nothing in your
+source tree records that they exist.
+
 ## Plain server (rsync)
 
 ```sh

@@ -145,10 +145,22 @@ italic scaffold
 
 ## `italic clean`
 
-Remove the output directory (`public/` by default).
+Empty the output directory (`public/` by default), leaving the directory itself in
+place.
 
 ```sh
 italic clean
+```
+
+Anything matched by [`keep_files`](config.md#keep_files) is preserved. That
+defaults to `[".git"]`, so cleaning an output directory that is a git worktree or
+clone will not destroy its repo metadata.
+
+`italic build` writes over the top and never removes, so a `clean` first is how you
+get output with no leftovers from deleted content:
+
+```sh
+italic clean && italic build
 ```
 
 ## See also
