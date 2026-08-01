@@ -1,6 +1,6 @@
 [package]
 name = "italic"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Gordon Brander"]
@@ -10,7 +10,7 @@ homepage = "https://github.com/gordonbrander/italic"
 repository = "https://github.com/gordonbrander/italic"
 license = "AGPL-3.0-or-later"
 readme = "README.md"
-keywords = ["static-site", "ssg", "markdown", "blog", "digital-garden", "atproto", "bluesky"]
+keywords = ["static-site", "ssg", "markdown", "digital-garden", "atproto"]
 categories = ["command-line-utilities", "web-programming", "text-processing"]
 exclude = [
     "plan.md",
