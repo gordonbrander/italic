@@ -42,6 +42,23 @@ fn collect_files(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     out
 }
 
+/// [`collect_files`] over an `expected/` dir, with `{{VERSION}}` replaced by
+/// the crate version. Fixtures that capture the `<meta name="generator">` tag
+/// use the placeholder so a version bump doesn't break them.
+fn collect_expected(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    collect_files(root)
+        .into_iter()
+        .map(|(path, bytes)| {
+            let text = String::from_utf8_lossy(&bytes);
+            let bytes = match text.contains("{{VERSION}}") {
+                true => text.replace("{{VERSION}}", env!("CARGO_PKG_VERSION")).into(),
+                false => bytes,
+            };
+            (path, bytes)
+        })
+        .collect()
+}
+
 /// Copy a fixture (minus its `expected/` dir) into a temp dir, build it in
 /// place, and return the temp root — `public/` under it holds the output. The
 /// caller is responsible for cleanup. Used directly by tests that assert on the
@@ -123,7 +140,7 @@ struct AssertCtx {
 impl AssertCtx {
     fn assert_match(self) {
         let actual = collect_files(&self.actual_root);
-        let expected = collect_files(&self.expected_root);
+        let expected = collect_expected(&self.expected_root);
 
         let matches = actual.len() == expected.len()
             && actual
