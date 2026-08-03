@@ -57,6 +57,26 @@ Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blog
 
 ## Install
 
+The fastest way to start is to install the Italic
+[skill](https://agentskills.io) and let your coding agent do it.
+
+Claude Code:
+
+```sh
+/plugin marketplace add gordonbrander/italic
+/plugin install italic@italic
+```
+
+Codex:
+
+```sh
+$skill-installer install https://github.com/gordonbrander/italic/tree/main/.agents/skills/italic
+```
+
+Then ask your agent to set up a site for you.
+
+Or do it by hand:
+
 ```sh
 cargo install italic
 ```

@@ -1,0 +1,19 @@
+{
+  "name": "italic",
+  "description": "Agent skills for Italic, a static site generator for Markdown notes and digital gardens.",
+  "owner": {
+    "name": "Gordon Brander",
+    "url": "https://github.com/gordonbrander"
+  },
+  "plugins": [
+    {
+      "name": "italic",
+      "source": "./.agents",
+      "description": "Build and publish websites with Italic, a static site generator for Markdown notes and digital gardens.",
+      "author": { "name": "Gordon Brander" },
+      "homepage": "https://github.com/gordonbrander/italic",
+      "license": "AGPL-3.0",
+      "keywords": ["static-site-generator", "markdown", "obsidian", "atproto"]
+    }
+  ]
+}
