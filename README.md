@@ -57,8 +57,13 @@ Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blog
 
 ## Install
 
-The fastest way to start is to install the Italic
-[skill](https://agentskills.io) and let your coding agent do it.
+```sh
+cargo install italic
+```
+
+## Quick start
+
+The fastest way to get started is to install the Italic skill and let your coding agent set up a site for you.
 
 Claude Code:
 
@@ -73,17 +78,7 @@ Codex:
 $skill-installer install https://github.com/gordonbrander/italic/tree/main/.agents/skills/italic
 ```
 
-Then ask your agent to set up a site for you.
-
-Or do it by hand:
-
-```sh
-cargo install italic
-```
-
-This puts `italic` on your `PATH` (typically `~/.cargo/bin/italic`).
-
-## Quick start
+Or, do it by hand:
 
 ```sh
 italic new my-site
@@ -94,18 +89,7 @@ italic serve
 
 Congrats! You have a website at <http://localhost:3000>.
 
-To dress it up, grab a starter theme:
-
-```sh
-git clone --depth 1 https://github.com/gordonbrander/italic_themes.git themes/
-```
-
-```yaml
-# config.yaml
-theme: "themes/obsidian"
-```
-
-Then `italic build` outputs plain static files to `public/`, ready for any
+`italic build` outputs plain static files to `public/`, ready for any
 host. The [quickstart](docs/getting-started/quickstart.md) covers all of this
 in more detail.
 
