@@ -33,7 +33,9 @@ scaffold/          # site skeleton emitted by `italic new`
 tests/
   build.rs         # fixture-driven integration tests
   fixtures/        # numbered end-to-end sites (01_skeleton … 10_backlinks)
-docs/              # this documentation; internal notes in docs/notes/
+.agents/skills/italic/
+  SKILL.md         # the Italic agent skill
+  references/      # this documentation
 ```
 
 The build pipeline's stage order and data contracts are documented in the
@@ -54,9 +56,9 @@ Run everything with `cargo test`.
 
 ## Conventions
 
-- Modern Rust module style: `foo.rs` with a sibling `foo/` directory, not
-  `foo/mod.rs`.
 - Errors are loud: unknown config keys and bad references fail the build with
   a pointer, never a silent ignore. Match that spirit in new features.
 - User-visible changes that touch behavior get an update to the relevant page
-  under `docs/`.
+  under `.agents/skills/italic/references/`.
+
+See [AGENTS.md](../../../../AGENTS.md) for more conventions.

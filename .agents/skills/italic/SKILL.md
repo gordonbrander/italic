@@ -63,10 +63,10 @@ flag, and are always correct for the installed version. Prefer them over
 recalling flags from memory.
 
 For everything the binary cannot print, read the file you need from
-`references/` next to this skill. If `references/` is missing or a broken
-symlink, fetch the same path from
-`https://raw.githubusercontent.com/gordonbrander/italic/main/docs/` instead.
-Read specific files — do not crawl the whole directory:
+`references/` next to this skill. If `references/` is missing, fetch the same
+path from
+`https://raw.githubusercontent.com/gordonbrander/italic/main/.agents/skills/italic/references/`
+instead. Read specific files — do not crawl the whole directory:
 
 | Question | File |
 | :--- | :--- |
