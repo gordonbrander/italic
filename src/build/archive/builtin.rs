@@ -5,7 +5,7 @@
 //! overlay layer that a `archives/sitemap.xml` or `archives/feed/<name>.xml`
 //! transparently overrides.
 //!
-//! The bodies mirror the hand-written recipes in `docs/guides/archives.md`. The
+//! The bodies mirror the hand-written recipes in `.agents/skills/italic/references/archives.md`. The
 //! `permalink` filter already yields an absolute URL (origin + base path), so
 //! `<loc>`/`<link>` use it directly — chaining `absolute_url` would re-prefix an
 //! already-absolute URL. The channel self-link uses `absolute_url` on `""`.
