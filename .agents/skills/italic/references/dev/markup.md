@@ -178,7 +178,7 @@ local in the pass, scoped to that one call.
 ## Failure is quiet, by design
 
 The rest of Italic fails loudly on a bad reference (see
-[Contributing](../contributing.md)). Markup passes are the exception: an
+[Contributing](contributing.md)). Markup passes are the exception: an
 unresolved `![[missing.png]]` stays literal, a `^orphan` marker with nothing
 above it stays literal, an unresolved `[[Note]]` renders as a `nolink` span.
 Authors write prose containing carets and brackets, and a build that dies on a
@@ -188,7 +188,7 @@ leaves the source text alone rather than guessing.
 ## Testing
 
 Two levels, as everywhere in the repo (details in
-[Contributing](../contributing.md)). Each pass has an inline `#[cfg(test)] mod
+[Contributing](contributing.md)). Each pass has an inline `#[cfg(test)] mod
 tests` with a local `render_md` helper that runs parse → pass → format and
 asserts on the HTML; these cover the transform logic and its edge cases. The
 end-to-end behavior is pinned by fixtures — `09_wikilinks`, `28_heading_links`,

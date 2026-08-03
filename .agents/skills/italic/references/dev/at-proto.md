@@ -58,3 +58,19 @@ Client ──auth──▶ PDS ──signs & stores records──▶ Repository
 4. **Refresh when needed.** Access JWTs expire quickly; use `com.atproto.server.refreshSession` with the refresh token to get a new one without re-sending the password.
 
 The newer path replaces step 2 with **OAuth** (DPoP-bound tokens, no password handling) — preferable for production clients — but the `createSession` + App Password flow is the simplest for a CLI and is still widely used.
+
+## Cryptographic verification (CAR files)
+
+What a PDS *serves* over XRPC and what is *signed* into the repo's Merkle
+Search Tree can be checked independently. Download the full signed repository
+and verify it with [`goat`](https://github.com/bluesky-social/indigo/tree/main/cmd/goat),
+the official ATProto CLI:
+
+```sh
+curl -s "$PDS/xrpc/com.atproto.sync.getRepo?did=$DID" -o repo.car
+goat repo unpack repo.car        # extract records to a directory tree
+goat repo verify repo.car        # check the commit signature & MST integrity
+```
+
+For routine "did my publish work?" checks,
+[`italic atproto status`](../atproto-verify.md) is enough.

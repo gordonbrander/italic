@@ -43,7 +43,7 @@ use std::collections::HashSet;
 /// for free: a `^abc` inside a fence or code span never reaches a `Text` node.
 ///
 /// One parse-level trap the pass cannot see, documented in
-/// `.agents/skills/italic/references/guides/wikilinks.md`: a marker on the line directly after a **table**
+/// `.agents/skills/italic/references/wikilinks.md`: a marker on the line directly after a **table**
 /// is swallowed by GFM as another table row. Tables need a blank line before
 /// the marker; fences don't care.
 ///

@@ -272,7 +272,7 @@ async fn check(
     if !report.orphaned.is_empty() {
         eprintln!(
             "note: orphaned records can be removed with com.atproto.repo.deleteRecord \
-             (see https://github.com/gordonbrander/italic/blob/main/.agents/skills/italic/references/guides/verifying-atproto.md)"
+             (see https://github.com/gordonbrander/italic/blob/main/.agents/skills/italic/references/atproto-verify.md)"
         );
     }
 

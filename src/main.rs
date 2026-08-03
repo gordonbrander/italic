@@ -41,7 +41,7 @@ enum Command {
     },
     /// Copy the configured theme's starter content into this project's content dir
     Scaffold,
-    /// Remove the output directory
+    /// Empty the output directory in place (`keep_files` patterns and `.git` are preserved)
     Clean,
 }
 
