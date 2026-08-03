@@ -72,6 +72,11 @@ Tips:
   members to your layouts. Sites can override any of it by name.
 - Reference assets through the URL filters (`relative_url`) so themed sites
   work under a `base_path`.
+- Guard every `site.*` key your templates read with a fallback —
+  `{{ site.title or "My Site" }}` — since undefined variables fail the build
+  and a fresh site may set none of them. (Alternatively, ship placeholder
+  `site:` values in the theme's own `config.yaml`; they merge beneath the
+  site's.)
 - Ship demo content in `content/` so `italic scaffold` gives users a working
   starting point.
 

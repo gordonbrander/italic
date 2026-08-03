@@ -29,8 +29,6 @@ collection plus a default wires every doc to one layout —
 
 ```yaml
 # config.yaml
-site:
-  title: My Site      # base.html below reads site.title — undefined vars error
 collections:
   notes:
     path: "**/*.md"
@@ -48,7 +46,7 @@ defaults:
 <!doctype html>
 <html>
 <head>
-  <title>{{ page.title }} | {{ site.title }}</title>
+  <title>{{ page.title }} | {{ site.title or "My Site" }}</title>
   <link rel="stylesheet" href="{{ "css/style.css" | relative_url }}">
 </head>
 <body>
@@ -66,7 +64,9 @@ Three things to notice:
 
 - `page.content` is the document's already-rendered HTML body — pipe it
   through `safe` so it isn't escaped.
-- `site.*` is whatever you put under `site:` in `config.yaml`.
+- `site.*` is whatever you put under `site:` in `config.yaml` — and only
+  that, so guard optional keys with `or` (undefined variables fail the
+  build): `{{ site.title or "My Site" }}` works even with no `site:` block.
 - Static assets get URL-prefixed with `relative_url` so the site works under a
   [`base_path`](permalinks.md#urls-site-url-and-base-path).
 

@@ -21,7 +21,7 @@ cp -R ~/vault/* content/     # keep your existing structure
 <html>
 <head>
   <meta charset="utf-8">
-  <title>{{ page.title }} | {{ site.title }}</title>
+  <title>{{ page.title }} | {{ site.title or "My Garden" }}</title>
   {{ page | metadata }}
 </head>
 <body>
