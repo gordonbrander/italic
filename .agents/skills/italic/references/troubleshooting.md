@@ -5,6 +5,17 @@ the **deepest** line is the real cause; grep this file for it. Template failures
 are wrapped with where they happened: `` markup-phase Tera in <path> `` (a
 document body) or `` rendering template `<name>` for <path> `` (a layout).
 
+## `italic: command not found`
+
+Not an Italic error — the binary isn't installed or isn't on `PATH`. This is
+the normal state when the skill was installed before the binary:
+
+```sh
+command -v italic || cargo install italic
+```
+
+See [Installing](install.md) for the toolchain, `PATH`, and upgrade details.
+
 ## Template errors
 
 ### An index function or graph filter in a document body

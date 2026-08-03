@@ -14,30 +14,20 @@ license: AGPL-3.0
 Italic turns a directory of Markdown into a static website. It is a single Rust
 binary with no runtime dependencies.
 
-## What italic does NOT do
-
-Genre habits that silently fail here — check these before debugging:
-
-- **No `check`/`lint` subcommand and no `--version` flag.** `italic build`'s
-  exit code is the only validity signal, and success prints **nothing**.
-- **Unknown top-level `config.yaml` keys are silently ignored** — a clean
-  build does not prove a config key took effect.
-- **Unknown permalink `:tokens` stay literal** (`:year` from Jekyll/Hugo
-  yields a literal `:year` directory). Only `:slug :yyyy :mm :dd :term` exist.
-- **`![[Note]]` does not transclude** — embeds are for media files only.
-  Obsidian `aliases:` and `publish:` frontmatter are inert.
-- **`collection()`, `all()`, `taxonomy()`, `doc()`, `backlinks`, `related`
-  work only in layout templates**, never inside a document body — the error
-  says "is not available in the markup phase".
-
 ## Install the binary
 
+This skill may be installed before the binary is. Check first — every command
+below fails with `italic: command not found` otherwise:
+
 ```sh
-cargo install italic
+command -v italic || cargo install italic
 ```
 
-This puts `italic` on the user's `PATH` (typically `~/.cargo/bin/italic`). If
-`cargo` is missing, install Rust first from <https://rustup.rs>.
+`cargo install` compiles from source (a few minutes, needs Rust 1.95+) and
+puts `italic` at `~/.cargo/bin/italic`. If `cargo` itself is missing, install
+Rust from <https://rustup.rs> first. There is no `--version` flag; check the
+installed version with `cargo install --list | grep italic`. Toolchain, PATH,
+upgrade, and CI details: `references/install.md`.
 
 ## Start a site
 
@@ -102,6 +92,7 @@ from
 
 | Question | File |
 | :--- | :--- |
+| How do I install/upgrade the binary? Rust toolchain? `command not found`? | `references/install.md` |
 | A build error or wrong output — what does this message mean? | `references/troubleshooting.md` (grep it for the verbatim stderr text) |
 | What can `config.yaml` contain? | `references/config.md` |
 | What frontmatter keys does a document take? | `references/frontmatter.md` |
@@ -136,3 +127,19 @@ from
 
 `references/dev/` (markup internals, rkey derivation, an ATProto primer,
 contributing) is for working on Italic itself — skip it when building a site.
+
+## What italic does NOT do
+
+Genre habits that silently fail here — check these before debugging:
+
+- **No `check`/`lint` subcommand and no `--version` flag.** `italic build`'s
+  exit code is the only validity signal, and success prints **nothing**.
+- **Unknown top-level `config.yaml` keys are silently ignored** — a clean
+  build does not prove a config key took effect.
+- **Unknown permalink `:tokens` stay literal** (`:year` from Jekyll/Hugo
+  yields a literal `:year` directory). Only `:slug :yyyy :mm :dd :term` exist.
+- **`![[Note]]` does not transclude** — embeds are for media files only.
+  Obsidian `aliases:` and `publish:` frontmatter are inert.
+- **`collection()`, `all()`, `taxonomy()`, `doc()`, `backlinks`, `related`
+  work only in layout templates**, never inside a document body — the error
+  says "is not available in the markup phase".

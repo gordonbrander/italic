@@ -61,6 +61,10 @@ Transform your Markdown notes or [Obsidian Vault](https://obsidian.md) into blog
 cargo install italic
 ```
 
+Needs Rust 1.95+. See
+[Installing](.agents/skills/italic/references/install.md) for the toolchain,
+`PATH`, and upgrade details.
+
 ## Quick start
 
 The fastest way to get started is to install the Italic skill and let your coding agent set up a site for you.
